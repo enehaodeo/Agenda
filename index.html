@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日程 · 手工排程</title>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="masthead">
+  <div class="brand">
+    <div class="seal" aria-hidden="true">程</div>
+    <div class="brand-text">
+      <h1>日程</h1>
+      <p class="kicker">AGENDA · 手工排程</p>
+    </div>
+  </div>
+
+  <div class="today">
+    <div class="today-date" id="todayDate">—</div>
+    <div class="today-clock" id="todayClock">--:--:--</div>
+  </div>
+
+  <div class="mast-actions">
+    <button class="ghost-btn" id="btnUndo" title="撤销 (Ctrl+Z)">撤销</button>
+    <button class="ghost-btn" id="btnExport" title="导出为 JSON 备份">导出</button>
+    <button class="ghost-btn" id="btnImport" title="从 JSON 备份恢复">导入</button>
+    <input type="file" id="fileImport" accept="application/json,.json" hidden>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ─────────────── 左栏：任务池 ─────────────── -->
+  <aside class="col col-tasks">
+
+    <section class="panel compose">
+      <h2 class="panel-title">新建任务</h2>
+      <input type="text" id="newTitle" class="compose-title" placeholder="要做什么？" autocomplete="off">
+      <div class="compose-row">
+        <div class="dur-input">
+          <input type="number" id="newH" min="0" max="23" step="1" value="0" aria-label="小时"><span class="unit">时</span>
+          <input type="number" id="newM" min="0" max="59" step="1" value="30" aria-label="分钟"><span class="unit">分</span>
+        </div>
+        <div class="quick-dur" id="newQuick">
+          <button type="button" data-min="15">15</button>
+          <button type="button" data-min="30">30</button>
+          <button type="button" data-min="45">45</button>
+          <button type="button" data-min="60">60</button>
+          <button type="button" data-min="90">90</button>
+        </div>
+      </div>
+      <div class="tag-picker" id="newTags"></div>
+      <button class="primary-btn" id="btnAdd">添加到待办</button>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">待办 <span class="count" id="poolCount">0</span>
+        <button class="link-btn" id="btnAutoAll" title="按顺序把待办自动排入可用时间">自动排程</button>
+      </h2>
+      <div class="pool" id="pool"></div>
+    </section>
+
+    <section class="panel done-panel">
+      <h2 class="panel-title">已完成 <span class="count" id="doneCount">0</span>
+        <button class="link-btn" id="btnClearLog">清空</button>
+      </h2>
+      <div class="donelist" id="doneList"></div>
+    </section>
+
+  </aside>
+
+  <!-- ─────────────── 右栏：日程表 ─────────────── -->
+  <section class="col col-schedule">
+
+    <div class="sched-head">
+      <div class="datenav">
+        <button class="nav-btn" id="prevDay" aria-label="前一天">‹</button>
+        <div class="datenav-mid">
+          <div class="dn-main" id="viewDate">—</div>
+          <input type="date" id="datePick" class="dn-pick" aria-label="选择日期">
+        </div>
+        <button class="nav-btn" id="nextDay" aria-label="后一天">›</button>
+        <button class="ghost-btn" id="btnToday">今天</button>
+      </div>
+      <div class="sched-tools">
+        <div class="zoom" id="zoom">
+          <button type="button" data-z="0">疏</button>
+          <button type="button" data-z="1">中</button>
+          <button type="button" data-z="2">密</button>
+        </div>
+        <button class="ghost-btn accent" id="btnReview">结算 <span class="badge" id="reviewBadge" hidden>0</span></button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="availbar">
+      <span class="ab-label">可用时间</span>
+      <div class="ab-chips" id="slotChips"></div>
+      <div class="ab-actions">
+        <button class="ghost-btn" id="btnAddSlot">＋ 时间段</button>
+        <button class="ghost-btn" id="btnCopyPrev" title="复制前一天的可用时间">沿用昨日</button>
+      </div>
+      <form class="slot-form" id="slotForm" hidden>
+        <input type="time" id="slotStart" step="60" value="09:00">
+        <span class="dash">—</span>
+        <input type="time" id="slotEnd" step="60" value="12:00">
+        <button type="submit" class="primary-btn small">加入</button>
+        <div class="presets">
+          <button type="button" data-s="09:00" data-e="12:00">上午</button>
+          <button type="button" data-s="14:00" data-e="18:00">下午</button>
+          <button type="button" data-s="19:00" data-e="22:00">晚间</button>
+          <button type="button" data-s="08:00" data-e="22:00">全天</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="timeline" id="timeline">
+      <div class="tl-inner" id="tlInner">
+        <div class="gutter" id="gutter"></div>
+        <div class="surface" id="surface"></div>
+      </div>
+    </div>
+    <p class="tl-hint">在时间轴空白处按住拖动＝刷出可用时间 · 把左侧任务拖进来＝排入日程 · 拖动色块＝调整时间</p>
+
+  </section>
+</main>
+
+<!-- ─────────────── 任务编辑 / 拆分 ─────────────── -->
+<dialog id="taskDialog" class="dlg">
+  <form id="taskForm" method="dialog">
+    <h3 class="dlg-title" id="dlgTitle">编辑任务</h3>
+
+    <div class="field">
+      <span class="lbl">名称</span>
+      <input type="text" id="fTitle" class="txt" autocomplete="off">
+    </div>
+
+    <div class="field" id="fDurField">
+      <span class="lbl">耗时</span>
+      <div class="dur-block">
+        <div class="dur-input">
+          <input type="number" id="fH" min="0" max="23" step="1"><span class="unit">时</span>
+          <input type="number" id="fM" min="0" max="59" step="1"><span class="unit">分</span>
+        </div>
+        <div class="quick-dur" id="fQuick">
+          <button type="button" data-min="15">15</button>
+          <button type="button" data-min="30">30</button>
+          <button type="button" data-min="45">45</button>
+          <button type="button" data-min="60">60</button>
+          <button type="button" data-min="90">90</button>
+          <button type="button" data-min="120">120</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">标签</span>
+      <div class="tag-picker" id="fTags"></div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">备注</span>
+      <textarea id="fNote" class="txt" rows="2" placeholder="可留空"></textarea>
+    </div>
+
+    <div class="split" id="splitSection">
+      <div class="split-head">
+        <span class="split-title">拆分为子任务</span>
+        <span class="split-sum" id="splitSum"></span>
+      </div>
+      <div class="split-list" id="splitList"></div>
+      <button type="button" class="ghost-btn wide" id="addSub">＋ 添加子任务</button>
+      <p class="split-note">拆分后，父任务不再单独排程，改为把各个子任务分别放进日程表。</p>
+    </div>
+
+    <footer class="dlg-foot">
+      <button type="button" class="ghost-btn danger" id="btnDelTask">删除</button>
+      <div class="spacer"></div>
+      <button type="button" class="ghost-btn" id="btnCancel">取消</button>
+      <button type="submit" class="primary-btn">保存</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ─────────────── 结算 ─────────────── -->
+<dialog id="reviewDialog" class="dlg">
+  <div class="rv">
+    <h3 class="dlg-title">结算 · 已过时的日程</h3>
+    <p class="rv-sub">完成即从系统中删除；未完成则退回待办，由你重新分配。</p>
+    <div class="rv-list" id="rvList"></div>
+    <footer class="dlg-foot">
+      <div class="spacer"></div>
+      <button type="button" class="ghost-btn" id="rvClose">关闭</button>
+    </footer>
+  </div>
+</dialog>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
