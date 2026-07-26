@@ -6,6 +6,18 @@
 <title>日程 · 手工排程</title>
 <link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="styles.css">
+<script>
+/* 深浅皮要在首帧之前定下来，否则夜里开页面会先白闪一下。
+   app.js 在 body 末尾，来不及，所以这一小段留在这。
+   逻辑与 app.js「主题」区同源：agenda.theme.v1 存 auto / light / dark。 */
+(function () {
+  var mode = 'auto';
+  try { mode = localStorage.getItem('agenda.theme.v1') || 'auto'; } catch (e) { }
+  var sys = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme =
+    (mode === 'dark' || (mode !== 'light' && sys)) ? 'dark' : 'light';
+})();
+</script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -25,9 +37,11 @@
   </div>
 
   <div class="mast-actions">
+    <button class="ghost-btn" id="btnTheme" title="切换外观">随系统</button>
     <button class="ghost-btn" id="btnUndo" title="撤销 (Ctrl+Z)">撤销</button>
     <button class="ghost-btn" id="btnExport" title="导出为 JSON 备份">导出</button>
     <button class="ghost-btn" id="btnImport" title="从 JSON 备份恢复">导入</button>
+    <button class="ghost-btn" id="btnTour" title="重看功能导览">导览</button>
     <input type="file" id="fileImport" accept="application/json,.json" hidden>
   </div>
 </header>
@@ -57,7 +71,7 @@
       <button class="primary-btn" id="btnAdd">添加到待办</button>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="poolPanel">
       <h2 class="panel-title">待办 <span class="count" id="poolCount">0</span>
         <button class="link-btn" id="btnAutoAll" title="按顺序把待办自动排入可用时间">自动排程</button>
       </h2>
@@ -199,6 +213,23 @@
     </footer>
   </div>
 </dialog>
+
+<!-- ─────────────── 导览 ─────────────── -->
+<div class="tour" id="tour" hidden>
+  <div class="tour-mask" id="tourMask"></div>
+  <div class="tour-hole" id="tourHole"></div>
+  <div class="tour-card" id="tourCard" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+    <div class="tour-count" id="tourCount">1 / 1</div>
+    <h3 class="tour-title" id="tourTitle">—</h3>
+    <div class="tour-body" id="tourBody"></div>
+    <footer class="tour-foot">
+      <button type="button" class="tour-skip" id="tourSkip">跳过</button>
+      <div class="tour-dots" id="tourDots"></div>
+      <button type="button" class="ghost-btn" id="tourPrev">上一步</button>
+      <button type="button" class="primary-btn small" id="tourNext">下一步</button>
+    </footer>
+  </div>
+</div>
 
 <div class="toast-wrap" id="toastWrap"></div>
 

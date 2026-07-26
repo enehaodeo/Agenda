@@ -38,6 +38,23 @@ const hexRgb = h => {
   const n = parseInt(x.length === 3 ? x.split('').map(c => c + c).join('') : x, 16);
   return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 };
+/** 颜料提亮：#B23A22 这类深颜料压在夜色上会糊掉，抬明度、稍收饱和度后再用 */
+function lighten(hex) {
+  const [r, g, b] = hexRgb(hex).split(',').map(n => +n / 255);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let l = (mx + mn) / 2, s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1)), h = 0;
+  if (d) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  s = Math.min(s * .92, .66);
+  l = .52 + l * .28;
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  const seg = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h / 60) % 6];
+  return '#' + seg.map(v => pad(Math.round((v + m) * 255).toString(16))).join('');
+}
 const hm2min = s => { const [h, m] = String(s).split(':').map(Number); return h * 60 + m; };
 const min2hm = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 
@@ -184,6 +201,46 @@ function toast(msg, action) {
   setTimeout(close, action ? 7000 : 2800);
 }
 
+/* ---------------------------------------------------------- 主题
+   深浅两套皮：跟随系统 → 浅色 → 深色 循环。
+   外观属于这台机器，单独存一个键，不进 state，导入备份不会把它带回来。
+   首帧的 data-theme 由 index.html 头部那段小脚本先落定，这里只接手后续切换。 */
+const THEME_KEY = 'agenda.theme.v1';
+const THEME_MODES = ['auto', 'light', 'dark'];
+const THEME_LABEL = { auto: '随系统', light: '浅色', dark: '深色' };
+const sysDark = window.matchMedia
+  ? matchMedia('(prefers-color-scheme: dark)')
+  : { matches: false, addEventListener() { } };
+let themeMode = 'auto';
+try { const m = localStorage.getItem(THEME_KEY); if (THEME_MODES.includes(m)) themeMode = m; } catch (e) { }
+
+const isDark = () => themeMode === 'dark' || (themeMode === 'auto' && sysDark.matches);
+/** 标签颜料按深浅取用；--c 用于线和圆点，--c-rgb 供 rgba() 调淡底色 */
+const cvars = hex => { const c = isDark() ? lighten(hex) : hex; return `--c:${c};--c-rgb:${hexRgb(c)}`; };
+
+function applyTheme(rerender) {
+  const dark = isDark();
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const b = $('#btnTheme');
+  b.textContent = THEME_LABEL[themeMode];
+  b.title = themeMode === 'auto'
+    ? `外观：跟随系统（当前${dark ? '深色' : '浅色'}） · 点击切换`
+    : `外观：${THEME_LABEL[themeMode]} · 点击切换`;
+  if (rerender) renderAll();   /* 颜料要按深浅重算一遍 */
+}
+function cycleTheme() {
+  themeMode = THEME_MODES[(THEME_MODES.indexOf(themeMode) + 1) % THEME_MODES.length];
+  try { localStorage.setItem(THEME_KEY, themeMode); } catch (e) { }
+  applyTheme(true);
+}
+sysDark.addEventListener('change', () => { if (themeMode === 'auto') applyTheme(true); });
+/* 兜底：标签页在后台时那次 change 有可能收不到，回到前台再对一次表 */
+const syncTheme = () => {
+  if (document.documentElement.dataset.theme !== (isDark() ? 'dark' : 'light')) applyTheme(true);
+};
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTheme(); });
+window.addEventListener('focus', syncTheme);
+
 /* ============================================================
    渲染
    ============================================================ */
@@ -209,7 +266,7 @@ function taskRow(t, sub) {
   const blk = blockOf(t.id);
   const cls = ['task']; if (sub) cls.push('sub'); if (blk) cls.push('placed');
   const when = blk ? `${blk.date === state.ui.date ? '' : shortDate(blk.date) + ' '}${fmtT(blk.start)}` : '';
-  return `<div class="${cls.join(' ')}" data-id="${t.id}" style="--c:${tag.color};--c-rgb:${hexRgb(tag.color)}">
+  return `<div class="${cls.join(' ')}" data-id="${t.id}" style="${cvars(tag.color)}">
     ${blk ? '<span class="grip" style="opacity:.4">✓</span>' : '<span class="grip">⠿</span>'}
     <div class="t-main">
       <div class="t-title">${esc(t.title)}</div>
@@ -343,7 +400,7 @@ function renderTimeline() {
     if (h < 26) cls.push('tiny');
     if (past) cls.push('past', 'overdue');
     s += `<div class="${cls.join(' ')}" data-id="${b.id}"
-      style="top:${m2y(b.start)}px;height:${Math.max(h, 20)}px;--c:${tag.color};--c-rgb:${hexRgb(tag.color)}">
+      style="top:${m2y(b.start)}px;height:${Math.max(h, 20)}px;${cvars(tag.color)}">
       <div class="b-time">${fmtT(b.start)}–${fmtT(b.end)}<span style="color:var(--ink-4)"> · ${fmtD(b.end - b.start)}</span></div>
       <div class="b-title">${esc(t.title)}</div>
       ${parent ? `<div class="b-kicker">${esc(parent.title)} · ${esc(tag.name)}</div>` : ''}
@@ -399,7 +456,7 @@ function renderTagPicker(el, selected, onPick) {
   const draw = () => {
     el.innerHTML = state.tags.map(t =>
       `<button type="button" class="tagchip${t.id === selected ? ' on' : ''}" data-id="${t.id}"
-        style="--c:${t.color};--c-rgb:${hexRgb(t.color)}"><i></i>${esc(t.name)}</button>`).join('')
+        style="${cvars(t.color)}"><i></i>${esc(t.name)}</button>`).join('')
       + `<button type="button" class="tagchip add" data-add="1">＋ 标签</button>`;
   };
   draw();
@@ -417,7 +474,7 @@ function openNewTag(el, cb) {
   const box = document.createElement('div');
   box.className = 'tag-new';
   box.innerHTML = `<input type="text" placeholder="新标签名" maxlength="8">
-    <div class="tag-swatches">${PIGMENTS.map(c => `<i data-c="${c}" class="${c === color ? 'on' : ''}" style="--c:${c}"></i>`).join('')}</div>
+    <div class="tag-swatches">${PIGMENTS.map(c => `<i data-c="${c}" class="${c === color ? 'on' : ''}" style="${cvars(c)}"></i>`).join('')}</div>
     <button type="button" class="primary-btn small">建立</button>`;
   el.appendChild(box);
   const inp = box.querySelector('input'); inp.focus();
@@ -808,7 +865,7 @@ window.addEventListener('pointermove', e => {
       const tag = tagById(drag.task.tagId);
       dghost = document.createElement('div');
       dghost.className = 'drag-ghost';
-      dghost.style.setProperty('--c', tag.color);
+      dghost.style.cssText = cvars(tag.color);
       dghost.innerHTML = `${esc(drag.task.title)}<em>${fmtD(taskMins(drag.task))}</em>`;
       document.body.appendChild(dghost);
     } else if (drag.mode === 'move') drag.el.classList.add('dragging');
@@ -952,7 +1009,7 @@ function renderReview() {
   $('#rvList').innerHTML = list.length ? list.map(b => {
     const t = taskById(b.taskId); if (!t) return '';
     const tag = tagById(t.tagId);
-    return `<div class="rvitem" data-id="${b.id}" style="--c:${tag.color}">
+    return `<div class="rvitem" data-id="${b.id}" style="${cvars(tag.color)}">
       <div class="rv-when"><b>${b.date === todayKey() ? '今天' : shortDate(b.date)}</b>${fmtT(b.start)}–${fmtT(b.end)}</div>
       <div class="rv-t">${esc(t.title)}<small>${esc(tag.name)} · ${fmtD(b.end - b.start)}</small></div>
       <div class="rv-btns">
@@ -985,6 +1042,7 @@ $('#rvList').onclick = e => {
 /* ============================================================
    备份
    ============================================================ */
+$('#btnTheme').onclick = cycleTheme;
 $('#btnUndo').onclick = undo;
 $('#btnExport').onclick = () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -1028,12 +1086,202 @@ window.addEventListener('keydown', e => {
 });
 
 /* ============================================================
+   导览
+   ============================================================ */
+const TOUR_SEEN = 'agenda.tour.v1';   /* 单独一个键，不进 state，导入备份不会带回来 */
+
+/* 一步一项：sel 可以是选择器或选择器数组（第一个开亮，其余只描边）；不给 sel 就居中 */
+const TOUR = [
+  {
+    title: '先划时间，再放任务',
+    body: `一份<b>纯本地</b>的日程表：不联网、不登录、没有账号，数据只存在这台浏览器里。<br>
+      用法就一句话——<em>先划出今天能用的时间，再把任务放进去</em>。<br>
+      下面几步走完就都会了，随时可以「跳过」。`
+  },
+  {
+    title: '写下一件事',
+    sel: '.compose',
+    body: `填名称和<b>时／分</b>，或者直接点 <kbd>15</kbd> <kbd>30</kbd> <kbd>45</kbd> 这些快捷时长。<br>
+      挑一个标签（<b>＋ 标签</b> 可以自己造，八种颜料色任选），再「添加到待办」。<br>
+      在名称框里按 <kbd>Enter</kbd> 也能提交。`
+  },
+  {
+    title: '待办 · 拆分',
+    sel: '#poolPanel',
+    body: `还没安排的任务都堆在这里。鼠标移上去会露出三个按钮：
+      <ul><li><b>↳</b> 排进最近的空档</li>
+      <li><b>✎</b> 改名称、耗时、标签、备注</li>
+      <li><b>✓</b> 直接记为完成</li></ul>
+      <b>✎</b> 里还能把一件大事<b>拆分为子任务</b>——拆分后父任务变成一个分组，改为分别安排每条子任务。<br>
+      右上角「自动排程」把整个待办按顺序一次铺进空档。`
+  },
+  {
+    title: '今天 · 翻天 · 疏密',
+    sel: '.sched-head',
+    body: `打开就是<b>今天</b>：报头是走秒的时钟，时间轴上有一条跟着走的朱砂「此刻」线。<br>
+      <b>‹ ›</b> 或点日期翻到别的日子，<b>今天</b> 一键回来。<br>
+      <b>疏／中／密</b> 调时间轴的松紧。`
+  },
+  {
+    title: '先划出可用时间',
+    sel: '.availbar',
+    body: `任务只能落在<b>可用时间</b>里，所以先划时间。<br>
+      「<b>＋ 时间段</b>」填起止，或用 上午／下午／晚间／全天 预设；「<b>沿用昨日</b>」一键复制前一天。<br>
+      相邻、重叠的段会自动合并；用 <b>×</b> 删掉一段时，段里的任务会退回待办。`
+  },
+  {
+    title: '拖进日程表',
+    sel: '#timeline',
+    body: `这块画布上有三种拖法：
+      <ul><li>空白处<b>按住上下拖</b>＝刷出一段可用时间</li>
+      <li>把左边的任务<b>拖进来</b>＝排入日程</li>
+      <li>拖色块＝改时间，拖时间段的上下边缘＝拉伸</li></ul>
+      落点会吸附到 5 分钟刻度、时间段边界和相邻色块边缘，<em>不会重叠，也不会越出可用时间</em>。<br>
+      实在放不下会先问你，可以选「仍要放入」，顺带把那一段设为可用。`
+  },
+  {
+    title: '这一天的账',
+    sel: '#stats',
+    body: `可用、已排、尚余、待办——四个数字随时对得上。<br>
+      「已排」下面那条朱砂细线，是当天时间的占用比例。`
+  },
+  {
+    title: '完成 · 未完成 · 结算',
+    sel: ['#btnReview', '.done-panel'],
+    body: `色块上的 <b>✓</b>＝完成，任务从系统里删掉、记进左下「已完成」；<b>↩</b>＝没做完，退回待办等你重排。<br>
+      <b>结算</b>会集中列出所有<em>已经过时</em>的日程（按钮上带红角标），逐条选 完成／未完成／<b>顺延</b>到今天最近的空档。`
+  },
+  {
+    title: '昼夜 · 撤销 · 备份',
+    sel: '.mast-actions',
+    body: `最左边那颗按钮切外观：<b>随系统</b>／<b>浅色</b>／<b>深色</b> 轮着来，夜里自动换上墨色一套。<br>
+      <b>撤销</b>（或 <kbd>Ctrl+Z</kbd>）能回退删除、完成、清空、自动排程这些动作，最近四十步都留着。<br>
+      <b>导出</b> 存一份 JSON，<b>导入</b> 恢复——换电脑或清浏览器缓存之前记得导出。<br>
+      数据存在浏览器 localStorage 里，换个浏览器就是另一套数据。`
+  },
+  {
+    title: '就这些',
+    sel: '#btnTour',
+    body: `快捷键：<kbd>N</kbd> 写新任务 · <kbd>T</kbd> 回到今天 · <kbd>←</kbd> <kbd>→</kbd> 翻天 · <kbd>Ctrl+Z</kbd> 撤销。<br>
+      想再看一遍，点这里的<b>导览</b>。`
+  },
+];
+
+let tourAt = -1, tourEls = [], tourRaf = 0;
+const tourOn = () => tourAt >= 0;
+
+function startTour(at) {
+  try { localStorage.setItem(TOUR_SEEN, '1'); } catch (e) { }
+  if (dlg.open) dlg.close();
+  if (rdlg.open) rdlg.close();
+  $('#tour').hidden = false;
+  tourStep(at || 0);
+  $('#tourNext').focus();
+}
+function endTour() {
+  tourAt = -1; tourEls = [];
+  $$('.tour-ring').forEach(r => r.remove());
+  $('#tour').hidden = true;
+}
+function tourStep(i) {
+  const n = TOUR.length;
+  if (i >= n) return endTour();
+  tourAt = clamp(i, 0, n - 1);
+  const st = TOUR[tourAt];
+  $('#tourCount').textContent = `${tourAt + 1} / ${n}`;
+  $('#tourTitle').textContent = st.title;
+  $('#tourBody').innerHTML = st.body;
+  $('#tourPrev').disabled = tourAt === 0;
+  $('#tourNext').textContent = tourAt === n - 1 ? '开始使用' : '下一步';
+  $('#tourDots').innerHTML = TOUR.map((s, k) =>
+    `<i${k === tourAt ? ' class="on"' : ''} data-i="${k}" title="${esc(s.title)}"></i>`).join('');
+  tourEls = (st.sel ? [].concat(st.sel) : []).map(s => $(s)).filter(Boolean);
+  tourEls[0]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  tourPlace();
+  requestAnimationFrame(tourPlace);   /* 滚动落定后再校一次 */
+}
+/** 把亮区和卡片摆到当前目标旁边；滚动、改窗口大小后重跑 */
+function tourPlace() {
+  if (!tourOn()) return;
+  const hole = $('#tourHole'), card = $('#tourCard');
+  const vw = innerWidth, vh = innerHeight;
+  const PAD = 7, GAP = 14, M = 10;
+
+  $$('.tour-ring').forEach(r => r.remove());
+  let box = null;
+  if (tourEls.length) {
+    const r = tourEls[0].getBoundingClientRect();
+    let l = r.left - PAD, t = r.top - PAD, w = r.width + PAD * 2, h = r.height + PAD * 2;
+    if (l < 2) { w += l - 2; l = 2; }
+    if (t < 2) { h += t - 2; t = 2; }
+    box = { l, t, w: Math.min(w, vw - 4 - l), h: Math.min(h, vh - 4 - t) };
+    for (const el of tourEls.slice(1)) {
+      const q = el.getBoundingClientRect();
+      const ring = document.createElement('div');
+      ring.className = 'tour-ring';
+      ring.style.cssText = `left:${q.left - 4}px;top:${q.top - 4}px;width:${q.width + 8}px;height:${q.height + 8}px`;
+      $('#tour').appendChild(ring);
+    }
+  }
+  /* 没有目标时用一个零尺寸的洞，投影照旧铺满整屏 */
+  hole.style.left = (box ? box.l : vw / 2) + 'px';
+  hole.style.top = (box ? box.t : vh / 2) + 'px';
+  hole.style.width = (box ? box.w : 0) + 'px';
+  hole.style.height = (box ? box.h : 0) + 'px';
+
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  let x, y;
+  if (!box) { x = (vw - cw) / 2; y = (vh - ch) / 2; }
+  else if (vw < 640 || vh < 560) {                                  /* 窄屏：上下找地方，找不到就贴底 */
+    x = (vw - cw) / 2;
+    y = box.t + box.h + GAP;
+    if (y + ch > vh - M) y = box.t - GAP - ch;
+    if (y < M) y = vh - ch - M;
+  }
+  else if (vw - (box.l + box.w) >= cw + GAP + M) { x = box.l + box.w + GAP; y = box.t + box.h / 2 - ch / 2; }
+  else if (box.l >= cw + GAP + M) { x = box.l - GAP - cw; y = box.t + box.h / 2 - ch / 2; }
+  else if (vh - (box.t + box.h) >= ch + GAP + M) { y = box.t + box.h + GAP; x = box.l + box.w / 2 - cw / 2; }
+  else if (box.t >= ch + GAP + M) { y = box.t - GAP - ch; x = box.l + box.w / 2 - cw / 2; }
+  else { x = vw - cw - M; y = vh - ch - M; }
+  card.style.left = Math.round(clamp(x, M, Math.max(M, vw - cw - M))) + 'px';
+  card.style.top = Math.round(clamp(y, M, Math.max(M, vh - ch - M))) + 'px';
+}
+
+$('#btnTour').onclick = () => startTour(0);
+$('#tourNext').onclick = () => tourStep(tourAt + 1);
+$('#tourPrev').onclick = () => tourStep(tourAt - 1);
+$('#tourSkip').onclick = endTour;
+$('#tourDots').onclick = e => {
+  const d = e.target.closest('i[data-i]');
+  if (d) tourStep(+d.dataset.i);
+};
+/* 导览进行中吃掉快捷键，别让底下的界面跟着响应 */
+window.addEventListener('keydown', e => {
+  if (!tourOn()) return;
+  if (e.key === 'Escape') endTour();
+  else if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') tourStep(tourAt + 1);
+  else if (e.key === 'ArrowLeft') tourStep(tourAt - 1);
+  else return;
+  e.preventDefault(); e.stopPropagation();
+}, true);
+const tourSync = () => {
+  if (!tourOn() || tourRaf) return;
+  tourRaf = requestAnimationFrame(() => { tourRaf = 0; tourPlace(); });
+};
+window.addEventListener('resize', tourSync);
+window.addEventListener('scroll', tourSync, true);   /* 捕获阶段才收得到内部容器的滚动 */
+
+/* ============================================================
    启动
    ============================================================ */
 const BOOT_DAY = todayKey();
+applyTheme(false);        /* 只对齐按钮文案，紧接着的 renderAll 会把颜料一并算好 */
 renderAll();
 tickClock();
 scrollToNow(false);
+let tourFirstRun = false;
+try { tourFirstRun = !localStorage.getItem(TOUR_SEEN); } catch (e) { }
+if (tourFirstRun) setTimeout(() => startTour(0), 450);   /* 等字体和布局落定 */
 setInterval(tickClock, 1000);
 setInterval(() => { if (!drag) { updateNowLine(); renderBadge(); } }, 20000);
 window.addEventListener('resize', () => { if (!drag) renderTimeline(); });

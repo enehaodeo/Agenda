@@ -29,6 +29,16 @@ python -m http.server 5177
 
 ## Architecture
 
+### 主题（深浅两套皮）
+
+- `data-theme="light|dark"` 挂在 `<html>` 上。**首帧之前**由 `index.html` `<head>` 里那段内联小脚本落定（app.js 在 body 末尾，来不及，夜里会先白闪一下）。app.js 的「主题」区只接手后续切换——两边的键名和判断逻辑要一起改。
+- 模式三选一：`auto`（跟随 `prefers-color-scheme`，默认）／`light`／`dark`，点报头最左那颗按钮循环。存 `agenda.theme.v1`，**不进 `state`**，所以导入备份不会连别人的外观一起带回来。
+- `auto` 下监听 `matchMedia` 的 `change`，系统换色时当场跟着换，不用刷新。
+- CSS 只有 `:root` 和 `:root[data-theme="dark"]` 两个变量块，语义不变（`--paper*` 永远是「面」，`--ink*` 永远是「字」），加新颜色时**两边都要给值**，不要在规则里写死颜色。除了变量块，全文件只剩几处刻意写死的黑色投影。
+- 需要 rgba 调淡的颜色额外备一份分量：`--cinnabar-rgb`、`--shade`（投影基色，浅色是墨、深色是纯黑）。另有 `--on-accent`（压在朱砂块上的字：浅色用宣白、深色用暗墨）、`--solid` / `--solid-fg`（主按钮、提示条、当前档位这类实心控件）、`--fill-1/2/3`（半透明抬起层）、`--tint-1/2/b`（色块底色浓度，夜里要更浓才浮得起来）。
+- **标签颜料要按深浅换算**：`PIGMENTS` 那八个颜料色压在夜色上会糊掉，`lighten()` 抬明度后由 `cvars(hex)` 一次吐出 `--c` 和 `--c-rgb`。所有要着色的元素都走 `cvars()`，不要再手写 `--c:${tag.color}`。切主题时 `applyTheme(true)` 会 `renderAll()` 把颜料重算一遍。
+- `color-scheme` 跟着一起切，原生日期／时间选择器和滚动条才会跟着变暗。
+
 ### 状态与持久化
 
 单一可变全局 `state`，形状见 `blank()`（app.js 顶部）：
@@ -80,6 +90,16 @@ python -m http.server 5177
 
 要点：移动超过 5px 才 `live = true`（否则算点击）；`drag.result` 在 move 阶段算好，`pointerup` 只负责提交；触屏上 `paint` 直接放弃（留给页面滚动），`new` 只从 `.grip` 起手。
 
+### 导览
+
+`app.js` 末尾的「导览」区，遮罩式分步导览。加减步骤只改 `TOUR` 数组：`title` / `body`（HTML，直接 innerHTML）/ `sel`（选择器，或选择器数组——第一个开亮，其余只用 `.tour-ring` 描边；不给 `sel` 就是居中的纯文字步）。
+
+- 暗场是 `#tourHole` 的 `box-shadow: 0 0 0 9999px` 打出来的洞，**不是**给目标元素抬 z-index——`.layout`（z-index:10）和 `.masthead`（20）各自是层叠上下文，子元素抬不出去。代价是一步只能有一个亮区。
+- 居中步用一个零尺寸的洞，投影照样铺满整屏。
+- `tourPlace()` 先同步摆一次，再在 `requestAnimationFrame` 里校一次（等 `scrollIntoView` 落定）；另外挂在 `resize` 和**捕获阶段**的 `scroll` 上（内部容器的滚动不冒泡）。卡片方位按「右→左→下→上」取第一个放得下的，窄屏改成上下找、找不到就贴底。
+- 导览期间键盘事件在 window 捕获阶段就被吃掉，底下的 `n` / `t` / `←` `→` 不会跟着响应；遮罩本身吞掉所有点击。所以导览全程只读——不动 `state`、不 `snapshot()`、不进撤销栈。
+- 「看过导览」单独存 `agenda.tour.v1`，不进 `state`，所以导入备份不会把它带回来。
+
 ## 两个已经踩过的坑
 
 - **`.surface` 必须有显式高度**。它的子元素全是绝对定位，不给高度的话 `getBoundingClientRect()` 返回 height 0，所有命中测试静默失效。高度设在 `#surface` 上（不是 `#tlInner`）。
@@ -87,7 +107,7 @@ python -m http.server 5177
 
 ## 样式约定
 
-所有颜色/字体/圆角在 [styles.css](styles.css) 顶部的 `:root` 里（宣纸朱砂主题：`--paper*` 纸、`--ink*` 墨、`--cinnabar*` 朱）。标签颜色用 `PIGMENTS` 里的颜料色，元素上同时设 `--c`（hex）和 `--c-rgb`（`hexRgb()` 生成，供 `rgba()` 用）。
+所有颜色/字体/圆角在 [styles.css](styles.css) 顶部的 `:root` 里（白天「宣纸朱砂」：`--paper*` 纸、`--ink*` 墨、`--cinnabar*` 朱；夜里「灯下研墨」在紧接着的 `:root[data-theme="dark"]` 里，同名同义只换值）。标签颜色用 `PIGMENTS` 里的颜料色，元素上同时设 `--c`（hex）和 `--c-rgb`（供 `rgba()` 用），一律由 `cvars()` 生成——它会按当前深浅决定要不要提亮。
 
 字体：中文走系统已装的 Noto Serif SC / Noto Sans SC（有回落链），只有拉丁的 Fraunces + IBM Plex Mono 是内嵌的。
 
