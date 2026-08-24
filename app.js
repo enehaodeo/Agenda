@@ -1073,11 +1073,183 @@ $('#fileImport').onchange = e => {
   e.target.value = '';
 };
 
+/* ============================================================
+   导出文档：把某段日期范围排定好的日程编排成一份可打印的 HTML
+   ============================================================ */
+const expDlg = $('#exportDialog');
+let expMode = 'today';
+
+function weekRange(dk) {
+  const d = dateOf(dk), day = d.getDay();
+  const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  return [keyOf(mon), keyOf(sun)];
+}
+function monthRange(dk) {
+  const d = dateOf(dk);
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  return [keyOf(first), keyOf(last)];
+}
+function allRange() {
+  const keys = [...state.slots.map(s => s.date), ...state.blocks.map(b => b.date), ...state.log.map(l => l.date)].sort();
+  return keys.length ? [keys[0], keys[keys.length - 1]] : [todayKey(), todayKey()];
+}
+function expRangeKeys() {
+  if (expMode === 'today') return [todayKey(), todayKey()];
+  if (expMode === 'week') return weekRange(state.ui.date);
+  if (expMode === 'month') return monthRange(state.ui.date);
+  if (expMode === 'all') return allRange();
+  let s = $('#expStart').value || todayKey(), en = $('#expEnd').value || s;
+  if (en < s) [s, en] = [en, s];
+  return [s, en];
+}
+function updateExpSummary() {
+  const [s, en] = expRangeKeys();
+  $('#expSummary').textContent = s === en ? `将导出 ${cnDate(s)} 一天` : `将导出 ${cnDate(s)} 至 ${cnDate(en)}`;
+}
+
+const DOC_CSS = `
+:root{
+  --paper:#F2EDE1; --paper-hi:#FBF8F1; --ink:#23211C; --ink-2:#4C473C; --ink-3:#837B6B; --ink-4:#A79E8B;
+  --cinnabar:#B23A22; --rule:rgba(35,33,28,.14); --rule-hard:rgba(35,33,28,.30);
+  --serif:"Noto Serif SC","Source Han Serif SC","Songti SC","STSong","SimSun","Microsoft YaHei",serif;
+  --sans:"Noto Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","微软雅黑",sans-serif;
+  --mono:"IBM Plex Mono","Cascadia Mono","Consolas",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0; padding:36px 44px 60px; background:var(--paper); color:var(--ink); font-family:var(--serif); line-height:1.6}
+header{margin-bottom:26px; padding-bottom:16px; border-bottom:2px solid var(--ink)}
+header h1{margin:0 0 4px; font-size:26px; letter-spacing:.1em; font-weight:600}
+header .range{margin:0; font-size:15px; color:var(--ink-2)}
+header .meta{margin:6px 0 0; font-family:var(--mono); font-size:11.5px; color:var(--ink-3)}
+.printbtn{margin-top:14px; padding:7px 16px; border:1px solid var(--ink-3); border-radius:3px; background:var(--paper-hi); color:var(--ink); font-family:var(--sans); font-size:12.5px; cursor:pointer}
+.printbtn:hover{background:var(--ink); color:var(--paper-hi)}
+section.day{margin-bottom:28px; break-inside:avoid-page}
+section.day h2{margin:0 0 10px; padding-bottom:6px; font-size:16px; font-weight:600; letter-spacing:.04em; border-bottom:1px solid var(--rule-hard); display:flex; align-items:baseline; gap:8px}
+.tag-today{font-family:var(--sans); font-size:10.5px; font-weight:400; color:var(--cinnabar); border:1px solid var(--cinnabar); border-radius:8px; padding:1px 8px}
+table.sched{width:100%; border-collapse:collapse; font-size:13.5px}
+table.sched td{padding:7px 8px; border-bottom:1px solid var(--rule); vertical-align:top}
+.c-time{font-family:var(--mono); white-space:nowrap; color:var(--ink-2); width:110px}
+.c-main{width:100%}
+.c-title{color:var(--ink)}
+.c-sub,.c-note{font-family:var(--sans); font-size:11.5px; color:var(--ink-3); margin-top:2px}
+.c-tag{font-family:var(--sans); font-size:11.5px; color:var(--ink-3); white-space:nowrap}
+.c-dur{font-family:var(--mono); font-size:12px; color:var(--ink-3); text-align:right; white-space:nowrap}
+.tagdot{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle}
+.none{color:var(--ink-4); font-size:13px; margin:0 0 8px}
+.donebox{margin-top:8px; padding:8px 10px; background:var(--paper-hi); border-left:3px solid var(--ink-3); border-radius:2px}
+.donebox b{font-family:var(--sans); font-size:10.5px; letter-spacing:.14em; color:var(--ink-3); text-transform:uppercase}
+.donebox ul{margin:6px 0 0; padding:0; list-style:none; font-size:13px}
+.donebox li{padding:2px 0}
+.donebox small{color:var(--ink-4); font-family:var(--sans)}
+section.pending{margin-top:34px; padding-top:18px; border-top:2px solid var(--ink)}
+section.pending h2{margin:0 0 10px; font-size:16px; font-weight:600}
+section.pending ul{margin:0; padding:0; list-style:none; font-size:13.5px}
+section.pending li{padding:4px 0; border-bottom:1px solid var(--rule)}
+section.pending small{color:var(--ink-4); font-family:var(--sans)}
+@media print{ body{padding:0 6mm} .no-print{display:none} section.day{break-inside:avoid} }
+`;
+
+function buildDocHTML(startKey, endKey, opts) {
+  let sections = '', dayCount = 0, totalMin = 0, totalDoneMin = 0;
+  for (let dk = startKey; dk <= endKey; dk = shiftKey(dk, 1)) {
+    const blks = blocksFor(dk);
+    const logItems = opts.includeLog ? state.log.filter(l => l.date === dk) : [];
+    if (!blks.length && !logItems.length) continue;
+    dayCount++;
+    totalMin += blks.reduce((s, b) => s + (b.end - b.start), 0);
+    totalDoneMin += logItems.reduce((s, l) => s + l.minutes, 0);
+
+    const rows = blks.map(b => {
+      const t = taskById(b.taskId); if (!t) return '';
+      const tag = tagById(t.tagId);
+      const parent = t.parentId ? taskById(t.parentId) : null;
+      return `<tr>
+        <td class="c-time">${fmtT(b.start)}–${fmtT(b.end)}</td>
+        <td class="c-main"><div class="c-title">${esc(t.title)}</div>
+          ${parent ? `<div class="c-sub">${esc(parent.title)}</div>` : ''}
+          ${t.note ? `<div class="c-note">${esc(t.note)}</div>` : ''}</td>
+        <td class="c-tag"><span class="tagdot" style="background:${esc(tag.color)}"></span>${esc(tag.name)}</td>
+        <td class="c-dur">${fmtD(b.end - b.start)}</td>
+      </tr>`;
+    }).join('');
+    const doneRows = logItems.map(l => {
+      const tag = tagById(l.tagId);
+      return `<li><span class="tagdot" style="background:${esc(tag.color)}"></span>${esc(l.title)} <small>· ${esc(tag.name)} · ${fmtD(l.minutes)}</small></li>`;
+    }).join('');
+
+    sections += `<section class="day">
+      <h2>${cnDate(dk)}${dk === todayKey() ? ' <span class="tag-today">今天</span>' : ''}</h2>
+      ${blks.length ? `<table class="sched"><tbody>${rows}</tbody></table>` : '<p class="none">当日无排定日程</p>'}
+      ${logItems.length ? `<div class="donebox"><b>已完成</b><ul>${doneRows}</ul></div>` : ''}
+    </section>`;
+  }
+
+  let pendingSection = '';
+  if (opts.includePending) {
+    const list = pending();
+    if (list.length) {
+      const rows = list.map(t => {
+        const tag = tagById(t.tagId);
+        return `<li><span class="tagdot" style="background:${esc(tag.color)}"></span>${esc(t.title)} <small>· ${esc(tag.name)} · ${fmtD(t.minutes)}</small></li>`;
+      }).join('');
+      pendingSection = `<section class="pending"><h2>未排程的待办</h2><ul>${rows}</ul></section>`;
+    }
+  }
+
+  const rangeLabel = startKey === endKey ? cnDate(startKey) : `${cnDate(startKey)} 至 ${cnDate(endKey)}`;
+  const emptyNotice = !dayCount ? `<p class="none">所选范围内没有排定的日程${opts.includeLog ? '或完成记录' : ''}。</p>` : '';
+
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>日程 · ${esc(rangeLabel)}</title>
+<style>${DOC_CSS}</style></head><body>
+<header>
+  <h1>日程编排</h1>
+  <p class="range">${esc(rangeLabel)}</p>
+  <p class="meta">共 ${dayCount} 天有排程 · 合计 ${fmtD(totalMin)}${totalDoneMin ? ` · 已完成 ${fmtD(totalDoneMin)}` : ''} · 生成于 ${esc(cnDate(todayKey()))} ${fmtT(nowMin())}</p>
+  <button class="printbtn no-print" onclick="print()">打印 / 存为 PDF</button>
+</header>
+${emptyNotice}${sections}${pendingSection}
+</body></html>`;
+}
+
+$('#btnExportDoc').onclick = () => {
+  expMode = 'today';
+  $$('#expRange button').forEach(x => x.classList.toggle('on', x.dataset.r === 'today'));
+  $('#expCustomField').hidden = true;
+  $('#expStart').value = state.ui.date;
+  $('#expEnd').value = state.ui.date;
+  updateExpSummary();
+  expDlg.showModal();
+};
+$('#expRange').onclick = e => {
+  const b = e.target.closest('button[data-r]'); if (!b) return;
+  expMode = b.dataset.r;
+  $$('#expRange button').forEach(x => x.classList.toggle('on', x === b));
+  $('#expCustomField').hidden = expMode !== 'custom';
+  updateExpSummary();
+};
+$('#expStart').onchange = $('#expEnd').onchange = updateExpSummary;
+$('#expCancel').onclick = () => expDlg.close();
+$('#exportForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const [s, en] = expRangeKeys();
+  const html = buildDocHTML(s, en, { includeLog: $('#expLog').checked, includePending: $('#expPending').checked });
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `日程文档-${s === en ? s : s + '~' + en}.html`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  expDlg.close();
+  toast('已导出文档，打开后可直接打印或存为 PDF');
+});
+
 /* 快捷键 */
 window.addEventListener('keydown', e => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
-  if (!typing && !dlg.open && !rdlg.open) {
+  if (!typing && !dlg.open && !rdlg.open && !expDlg.open) {
     if (e.key === 'n') { e.preventDefault(); $('#newTitle').focus(); }
     if (e.key === 't') { e.preventDefault(); $('#btnToday').click(); }
     if (e.key === 'ArrowLeft') $('#prevDay').click();

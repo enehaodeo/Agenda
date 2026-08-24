@@ -39,6 +39,7 @@
   <div class="mast-actions">
     <button class="ghost-btn" id="btnTheme" title="切换外观">随系统</button>
     <button class="ghost-btn" id="btnUndo" title="撤销 (Ctrl+Z)">撤销</button>
+    <button class="ghost-btn" id="btnExportDoc" title="导出为编排好的文档，可选日期范围">文档</button>
     <button class="ghost-btn" id="btnExport" title="导出为 JSON 备份">导出</button>
     <button class="ghost-btn" id="btnImport" title="从 JSON 备份恢复">导入</button>
     <button class="ghost-btn" id="btnTour" title="重看功能导览">导览</button>
@@ -212,6 +213,49 @@
       <button type="button" class="ghost-btn" id="rvClose">关闭</button>
     </footer>
   </div>
+</dialog>
+
+<!-- ─────────────── 导出文档 ─────────────── -->
+<dialog id="exportDialog" class="dlg">
+  <form id="exportForm" method="dialog">
+    <h3 class="dlg-title">导出为文档</h3>
+
+    <div class="field">
+      <span class="lbl">范围</span>
+      <div class="zoom wide" id="expRange">
+        <button type="button" data-r="today">今天</button>
+        <button type="button" data-r="week">本周</button>
+        <button type="button" data-r="month">本月</button>
+        <button type="button" data-r="all">全部</button>
+        <button type="button" data-r="custom">自定义</button>
+      </div>
+    </div>
+
+    <div class="field" id="expCustomField" hidden>
+      <span class="lbl">日期</span>
+      <div class="range-row">
+        <input type="date" id="expStart">
+        <span class="dash">—</span>
+        <input type="date" id="expEnd">
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">内容</span>
+      <div class="expopts">
+        <label class="chk"><input type="checkbox" id="expLog" checked> 包含已完成记录</label>
+        <label class="chk"><input type="checkbox" id="expPending" checked> 附上未排程的待办</label>
+      </div>
+    </div>
+
+    <p class="split-note" id="expSummary"></p>
+
+    <footer class="dlg-foot">
+      <div class="spacer"></div>
+      <button type="button" class="ghost-btn" id="expCancel">取消</button>
+      <button type="submit" class="primary-btn">生成文档</button>
+    </footer>
+  </form>
 </dialog>
 
 <!-- ─────────────── 导览 ─────────────── -->
