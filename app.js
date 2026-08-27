@@ -667,8 +667,14 @@ function removeTask(id, complete) {
     }
   }
   purgeTask(id);
+  /* 完成最后一个子任务时，父任务一并结清（不再记一笔日志，否则时长会重复计入） */
+  const par = complete && t.parentId ? taskById(t.parentId) : null;
+  const closed = par && childrenOf(par.id).length === 0 ? par : null;
+  if (closed) purgeTask(closed.id);
   save(); renderAll();
-  toast(complete ? `已完成「${t.title}」` : `已删除「${t.title}」`, { label: '撤销', fn: undo });
+  toast(complete
+    ? (closed ? `已完成「${t.title}」，「${closed.title}」也一并结清` : `已完成「${t.title}」`)
+    : `已删除「${t.title}」`, { label: '撤销', fn: undo });
 }
 function unplace(taskId, silent) {
   const b = blockOf(taskId); if (!b) return;

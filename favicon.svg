@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="6" y="6" width="52" height="52" rx="4"
+        fill="#B23A22" transform="rotate(-4 32 32)"/>
+  <text x="32" y="33" text-anchor="middle" dominant-baseline="central"
+        font-family="'Noto Serif SC','Source Han Serif SC','Songti SC','STSong','SimSun','Microsoft YaHei',serif"
+        font-weight="600" font-size="34" fill="#FBF6EC"
+        transform="rotate(-4 32 32)">程</text>
+</svg>
