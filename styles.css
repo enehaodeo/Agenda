@@ -208,7 +208,7 @@ button{font-family:inherit; color:inherit; cursor:pointer}
 }
 .nav-btn:hover{background:var(--solid); color:var(--solid-fg); border-color:var(--solid)}
 
-input[type=text], input[type=number], input[type=time], input[type=date], textarea, select{
+input[type=text], input[type=email], input[type=password], input[type=number], input[type=time], input[type=date], textarea, select{
   font-family:var(--serif); font-size:14px; color:var(--ink);
   background:var(--fill-2);
   border:1px solid var(--rule-hard); border-radius:var(--r);
@@ -654,6 +654,33 @@ dialog.dlg form, .rv{padding:22px 24px 18px; max-height:88vh; overflow-y:auto}
 .expopts{flex:1; display:flex; flex-direction:column; gap:8px; padding-top:7px}
 .chk{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-2); cursor:pointer}
 .chk input{margin:0; accent-color:var(--cinnabar)}
+
+/* 账号 / 同步 */
+.acct-btn{display:inline-flex; align-items:center; gap:6px}
+.acct-dot{width:7px; height:7px; border-radius:50%; background:var(--ink-4); flex:none}
+.acct-btn[data-st="synced"] .acct-dot{background:var(--ok)}
+.acct-btn[data-st="syncing"] .acct-dot{background:var(--ink-3); animation:acctPulse 1s ease-in-out infinite}
+.acct-btn[data-st="offline"], .acct-btn[data-st="error"], .acct-btn[data-st="relogin"]{
+  color:var(--cinnabar); border-color:rgba(var(--cinnabar-rgb),.4)
+}
+.acct-btn[data-st="offline"] .acct-dot, .acct-btn[data-st="error"] .acct-dot, .acct-btn[data-st="relogin"] .acct-dot{background:var(--cinnabar)}
+@keyframes acctPulse{50%{opacity:.25}}
+.acct-tabs{margin-bottom:16px}
+.acct-note{min-height:1.7em}
+.acct-note.err{color:var(--cinnabar)}
+.note-btn{
+  margin-left:4px; padding:0; border:none; background:none;
+  font:inherit; color:var(--cinnabar); text-decoration:underline; text-underline-offset:2px;
+}
+.acct-val{flex:1; min-width:0; padding-top:7px; font-size:14px; color:var(--ink); overflow-wrap:anywhere}
+#aSync{font-family:var(--sans); font-size:12.5px; color:var(--ink-2)}
+.acct-guest{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin:2px 0 14px; padding:10px 12px; font-size:13px; color:var(--ink-2);
+  background:var(--fill-2); border-left:3px solid var(--cinnabar); border-radius:2px;
+}
+.acct-guest b{color:var(--ink); font-weight:600}
+.acct-guest .ghost-btn{margin-left:auto}
 
 .rv-sub{margin:-8px 0 14px; font-family:var(--sans); font-size:12px; color:var(--ink-3); line-height:1.7}
 .rv-list{display:flex; flex-direction:column; gap:7px}

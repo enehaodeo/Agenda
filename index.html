@@ -44,6 +44,7 @@
     <button class="ghost-btn" id="btnExport" title="导出为 JSON 备份">导出</button>
     <button class="ghost-btn" id="btnImport" title="从 JSON 备份恢复">导入</button>
     <button class="ghost-btn" id="btnTour" title="重看功能导览">导览</button>
+    <button class="ghost-btn acct-btn" id="btnAcct" title="登录后可在多台设备之间同步">登录</button>
     <input type="file" id="fileImport" accept="application/json,.json" hidden>
   </div>
 </header>
@@ -259,6 +260,59 @@
   </form>
 </dialog>
 
+<!-- ─────────────── 账号 / 同步 ─────────────── -->
+<dialog id="acctDialog" class="dlg">
+  <form id="acctForm" method="dialog" novalidate>
+    <h3 class="dlg-title" id="acctTitle">登录</h3>
+
+    <div id="acctOut">
+      <div class="zoom wide acct-tabs" id="acctTabs">
+        <button type="button" data-m="in">登录</button>
+        <button type="button" data-m="up">注册</button>
+        <button type="button" data-m="reset">忘记密码</button>
+      </div>
+      <div class="field">
+        <span class="lbl">邮箱</span>
+        <input type="email" id="aEmail" class="txt" autocomplete="email" spellcheck="false">
+      </div>
+      <div class="field" id="aCodeField" hidden>
+        <span class="lbl">验证码</span>
+        <input type="text" id="aCode" class="txt" inputmode="numeric" autocomplete="one-time-code" maxlength="10">
+      </div>
+      <div class="field" id="aPwdField">
+        <span class="lbl" id="aPwdLbl">密码</span>
+        <input type="password" id="aPwd" class="txt" autocomplete="current-password">
+      </div>
+      <p class="split-note acct-note" id="acctNote"></p>
+    </div>
+
+    <div id="acctIn" hidden>
+      <div class="field">
+        <span class="lbl">账号</span>
+        <div class="acct-val" id="aWho"></div>
+      </div>
+      <div class="field">
+        <span class="lbl">同步</span>
+        <div class="acct-val" id="aSync"></div>
+      </div>
+      <div class="acct-guest" id="aGuest" hidden>
+        <span>本机还有未登录时记下的 <b id="aGuestN"></b>。</span>
+        <button type="button" class="ghost-btn" id="aMerge">并入账号</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="aWipe"> 退出时清除本机上这个账号的数据（公用电脑用）</label>
+    </div>
+
+    <footer class="dlg-foot">
+      <button type="button" class="ghost-btn danger" id="aDelete" hidden>注销账号</button>
+      <div class="spacer"></div>
+      <button type="button" class="ghost-btn" id="aClose">关闭</button>
+      <button type="button" class="ghost-btn" id="aOut" hidden>退出登录</button>
+      <button type="button" class="ghost-btn" id="aSyncNow" hidden>立即同步</button>
+      <button type="submit" class="primary-btn" id="aSubmit">登录</button>
+    </footer>
+  </form>
+</dialog>
+
 <!-- ─────────────── 导览 ─────────────── -->
 <div class="tour" id="tour" hidden>
   <div class="tour-mask" id="tourMask"></div>
@@ -278,6 +332,7 @@
 
 <div class="toast-wrap" id="toastWrap"></div>
 
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

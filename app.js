@@ -1,6 +1,6 @@
 /* ============================================================
    日程 · 手工排程   app.js
-   纯前端，无依赖，数据存 localStorage
+   纯前端，无依赖，数据存 localStorage；登录后的云同步见 sync.js
    ============================================================ */
 'use strict';
 
@@ -59,7 +59,7 @@ const hm2min = s => { const [h, m] = String(s).split(':').map(Number); return h 
 const min2hm = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 
 /* ---------------------------------------------------------- 状态 */
-const STORE = 'agenda.v1';
+let STORE = storeKey();   /* 访客是 agenda.v1；登录后按账号分区，登录 / 退出时由 sync.js 切换 */
 const PIGMENTS = ['#B23A22', '#2E5E7E', '#4F7A4A', '#C08A1E', '#6A5480', '#8A5A3B', '#2F7E86', '#4C473C'];
 const DEFAULT_TAGS = [
   { id: 'tg-work',  name: '工作', color: '#B23A22' },
@@ -72,19 +72,27 @@ const DEFAULT_TAGS = [
 function blank() {
   return { tasks: [], blocks: [], slots: [], tags: DEFAULT_TAGS.map(t => ({ ...t })), log: [], ui: { date: todayKey(), zoom: 1 } };
 }
-let state = blank();
-try {
-  const raw = localStorage.getItem(STORE);
-  if (raw) {
-    const p = JSON.parse(raw);
-    state = Object.assign(blank(), p);
-    state.ui = Object.assign({ date: todayKey(), zoom: 1 }, p.ui || {});
-    if (!state.tags?.length) state.tags = DEFAULT_TAGS.map(t => ({ ...t }));
-  }
-} catch (e) { console.warn('读取本地数据失败，已重置', e); }
-state.ui.date = todayKey();
+/** 把读进来的 JSON（本地存档 / 备份文件 / 云端）补齐成完整的 state 形状 */
+function normState(p) {
+  const s = Object.assign(blank(), p);
+  s.ui = Object.assign({ date: todayKey(), zoom: 1 }, p.ui || {});
+  if (!s.tags?.length) s.tags = DEFAULT_TAGS.map(t => ({ ...t }));
+  s.ui.date = todayKey();
+  return s;
+}
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORE);
+    if (raw) return normState(JSON.parse(raw));
+  } catch (e) { console.warn('读取本地数据失败，已重置', e); }
+  return blank();
+}
+let state = loadState();
+resetSigs();
 
-const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { toast('保存失败：浏览器存储空间不足'); } };
+const writeLocal = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { toast('保存失败：浏览器存储空间不足'); } };
+/* 给改过的记录盖修改时间 → 写本地 → 有数据改动就排一次云同步（未登录时是空操作） */
+const save = () => { const changed = stampChanges(); writeLocal(); if (changed) cloudDirty(); };
 
 /* 撤销 */
 const undoStack = [];
@@ -497,8 +505,12 @@ function openNewTag(el, cb) {
    新建任务
    ============================================================ */
 let newTag = DEFAULT_TAGS[0].id;
-if (!state.tags.some(t => t.id === newTag)) newTag = state.tags[0].id;
-renderTagPicker($('#newTags'), newTag, id => newTag = id);
+/** state 被整体换掉（切账号、云端合并）后，新建框选中的标签可能已不存在 */
+function resetNewTag() {
+  if (!state.tags.some(t => t.id === newTag)) newTag = state.tags[0].id;
+  renderTagPicker($('#newTags'), newTag, id => newTag = id);
+}
+resetNewTag();
 
 $('#newQuick').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -1068,10 +1080,8 @@ $('#fileImport').onchange = e => {
       const p = JSON.parse(r.result);
       if (!Array.isArray(p.tasks) || !Array.isArray(p.blocks)) throw 0;
       snapshot();
-      state = Object.assign(blank(), p);
-      state.ui = Object.assign({ date: todayKey(), zoom: 1 }, p.ui || {});
-      state.ui.date = todayKey();
-      save(); renderAll();
+      state = normState(p);
+      save(); resetNewTag(); renderAll();
       toast(`已导入 ${state.tasks.length} 项任务`, { label: '撤销', fn: undo });
     } catch (err) { toast('文件格式不对，导入失败'); }
   };
@@ -1255,7 +1265,7 @@ $('#exportForm').addEventListener('submit', e => {
 window.addEventListener('keydown', e => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
-  if (!typing && !dlg.open && !rdlg.open && !expDlg.open) {
+  if (!typing && !dlg.open && !rdlg.open && !expDlg.open && !$('#acctDialog').open) {
     if (e.key === 'n') { e.preventDefault(); $('#newTitle').focus(); }
     if (e.key === 't') { e.preventDefault(); $('#btnToday').click(); }
     if (e.key === 'ArrowLeft') $('#prevDay').click();
@@ -1272,7 +1282,7 @@ const TOUR_SEEN = 'agenda.tour.v1';   /* 单独一个键，不进 state，导入
 const TOUR = [
   {
     title: '先划时间，再放任务',
-    body: `一份<b>纯本地</b>的日程表：不联网、不登录、没有账号，数据只存在这台浏览器里。<br>
+    body: `一份<b>本地优先</b>的日程表：不登录也能用，数据就存在这台浏览器里；想在电脑和手机之间同步，登录个账号就行。<br>
       用法就一句话——<em>先划出今天能用的时间，再把任务放进去</em>。<br>
       下面几步走完就都会了，随时可以「跳过」。`
   },
@@ -1334,8 +1344,15 @@ const TOUR = [
     sel: '.mast-actions',
     body: `最左边那颗按钮切外观：<b>随系统</b>／<b>浅色</b>／<b>深色</b> 轮着来，夜里自动换上墨色一套。<br>
       <b>撤销</b>（或 <kbd>Ctrl+Z</kbd>）能回退删除、完成、清空、自动排程这些动作，最近四十步都留着。<br>
-      <b>导出</b> 存一份 JSON，<b>导入</b> 恢复——换电脑或清浏览器缓存之前记得导出。<br>
-      数据存在浏览器 localStorage 里，换个浏览器就是另一套数据。`
+      <b>导出</b> 存一份 JSON，<b>导入</b> 恢复——没登录的话，换电脑或清浏览器缓存之前记得导出。`
+  },
+  {
+    title: '账号 · 多设备同步',
+    sel: '#btnAcct',
+    body: `不登录时，数据只在这台浏览器里，换个浏览器就是另一套。<br>
+      <b>登录</b>（邮箱注册，验证码确认）之后，日程会在你的电脑、手机之间<em>自动同步</em>：<br>
+      每一步照旧先存在本机，断网也能接着用，按钮会显示「<b>离线</b>」；联网后自动补上。<br>
+      两台设备改了同一件事，以后改的为准；排在同一时段撞车的，会退回待办并提醒你。`
   },
   {
     title: '就这些',
@@ -1352,6 +1369,7 @@ function startTour(at) {
   try { localStorage.setItem(TOUR_SEEN, '1'); } catch (e) { }
   if (dlg.open) dlg.close();
   if (rdlg.open) rdlg.close();
+  if ($('#acctDialog').open) $('#acctDialog').close();
   $('#tour').hidden = false;
   tourStep(at || 0);
   $('#tourNext').focus();
@@ -1457,6 +1475,7 @@ applyTheme(false);        /* 只对齐按钮文案，紧接着的 renderAll 会�
 renderAll();
 tickClock();
 scrollToNow(false);
+syncBoot();
 let tourFirstRun = false;
 try { tourFirstRun = !localStorage.getItem(TOUR_SEEN); } catch (e) { }
 if (tourFirstRun) setTimeout(() => startTour(0), 450);   /* 等字体和布局落定 */

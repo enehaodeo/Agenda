@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-一个纯前端的本地日程表 App（中文界面）。三个静态文件 + localStorage，没有构建步骤、没有依赖、没有测试框架、没有 git 仓库。用户 README 在 [README.md](README.md)，六个核心功能的操作说明以那份为准。
+一个纯前端、本地优先的日程表 App（中文界面）。四个静态文件（`index.html` / `styles.css` / `app.js` / `sync.js`）+ localStorage，没有构建步骤、没有依赖、没有测试框架。登录后可经 Supabase 多设备同步（见下文「账号与同步」）。用户 README 在 [README.md](README.md)，六个核心功能的操作说明以那份为准。
 
 ## Commands
 
@@ -22,10 +22,11 @@ python -m http.server 5177
 
 这条约束决定了下面所有技术选型，改动时不要破坏：
 
-- `app.js` 是**普通 script，不是 ES module**（`type="module"` 在 file:// 下会因 CORS 失败）。所有代码在一个顶层 IIFE 之外的全局作用域里，靠 `'use strict'` 和注释分区组织。
+- `app.js` / `sync.js` 都是**普通 script，不是 ES module**（`type="module"` 在 file:// 下会因 CORS 失败）。所有代码在全局作用域里，靠 `'use strict'` 和注释分区组织；两个文件共享同一个全局词法作用域（`sync.js` 先加载，但它引用 app.js 的 `state` / `save` / `renderAll` 等都在调用时才解析）。
 - 不能用 `fetch` / `XMLHttpRequest` 读本地文件。导入备份走 `FileReader`，导出走 `Blob` + `URL.createObjectURL`。
 - 字体不能外链文件（Chrome 对 `@font-face` 走 CORS，file:// 下会被判跨源）。所以 `fonts.css` 里是 base64 data URI。
-- 零外部请求是一条已验证的性质（`performance.getEntriesByType('resource')` 只有本地三个文件）。不要为了方便引入任何 CDN。
+- **未登录时**零外部请求是一条已验证的性质（`performance.getEntriesByType('resource')` 只有本地文件）；登录后也只连 `sync.js` 顶部配置的 Supabase 地址。不要为了方便引入任何 CDN（包括 supabase-js——同步客户端是手写的 fetch）。
+- 登录不能依赖跳转回页面（OAuth、魔法链接都回不到 file://），所以注册验证和找回密码都用邮件验证码，全程在页面内完成。
 
 ## Architecture
 
@@ -48,6 +49,8 @@ python -m http.server 5177
 ```
 
 - `state` 用 `let` 声明，因为 `undo()` 会整体替换它。任何长期持有 `state` 子对象引用的代码在 undo 后都会失效。
+- 数据存在 `STORE` 键下（`let`，访客是 `agenda.v1`，登录后是 `agenda.u.<uid>.v1`，由 `sync.js` 的 `switchStore()` 切换）。读档统一走 `loadState()` → `normState()`，导入备份也用 `normState()`。
+- `save()` = `stampChanges()`（给改过的记录盖 `mt` 修改时间）→ `writeLocal()` → 有数据改动就 `cloudDirty()`。只改 `ui` 的 save 不算改动。
 - 写操作的固定节奏：**`snapshot()` → 改 state → `save()` → `renderAll()`**。`snapshot()` 必须在修改前调用（它存的是 `JSON.stringify(state)`）。批量操作（如 `自动排程`）只在最外层 snapshot 一次，内部调用传 `quiet` 跳过 save/render。
 - `state.ui.date` 在启动时无条件重置为今天，导入备份时也是。
 
@@ -89,6 +92,19 @@ python -m http.server 5177
 | `resize` | `.slot-h` | 拉伸时间段上下沿 |
 
 要点：移动超过 5px 才 `live = true`（否则算点击）；`drag.result` 在 move 阶段算好，`pointerup` 只负责提交；触屏上 `paint` 直接放弃（留给页面滚动），`new` 只从 `.grip` 起手。
+
+### 账号与同步（sync.js）
+
+- 配置只有顶部 `SUPABASE_URL` / `SUPABASE_ANON` 两个常量，留空 = `CLOUD_READY` 为假，App 纯本地。云端结构在 `supabase/schema.sql`：每个用户一行 `agendas {user_id, doc jsonb, rev}`，只开放 select；写入只走 `push_agenda(p_doc, p_base_rev)`（rev 乐观锁，对不上返回 -1）。
+- 存储键：`agenda.acct.v1` 会话；`agenda.u.<uid>.v1` 账号的本机副本；`agenda.u.<uid>.sync.v1` 是 `{base, rev, at}`，`base` = 上次同步成功时的数据，三方合并的公共祖先。访客数据 `agenda.v1` 不受登录影响，首次登录时可「并入账号」。
+- 同步的只有 `DATA_KEYS`（tasks / blocks / slots / tags / log），`ui` 属于设备不同步。`dataOf()` 是**深拷贝**——`syncOnce()` 里有 await，必须拿快照而不是 state 的引用，否则推送途中本机的新改动会被误记进 base。
+- `sync()` 流程：pull → 云端 rev 变了就 `merge3(base, 本地, 云端)` → `repairData()` 修不变量 → 结果和本地不同就 `adoptData()` → 推送 → 成功后写 base/rev；推送返回 -1 就重来（最多 4 轮）。单飞，进行中再触发只补一轮。触发：`save()` 后防抖 1.5s、`online`、页面回到前台、前台每 60 秒。
+- `merge3` 按 id 逐条：只有一边改 → 用那边；两边都改 → 比 `mt`；一边删一边改 → 保留改的。所以**不要删掉记录上的 `mt` 字段**，也不要在别处手动写它（`stampChanges` 会在 `mergeSlots` 这类重建对象时把旧 `mt` 补回去）。
+- `repairData` 在合并后恢复上面四条不变量（孤儿子任务变顶层、父任务 / 已删任务 / 重复的 block 删掉、同日时间段合并），并且**只在这次合并碰过的日子里**检查 block 重叠、越出时间段、时长与任务不符——冲突时 `mt` 旧的退回待办并 toast。
+- `adoptData()` 替换 state 后会**清空撤销栈**：旧快照不含别的设备的改动，撤销会把它们吞掉。拖拽进行中（`drag` 非空）不 adopt，1.5 秒后重试。
+- 多标签页：监听 `storage` 事件，别的标签页写了当前 `STORE` 就跟着重载数据，写了 `agenda.acct.v1` 就跟着换账号；access token 刷新前先看磁盘上有没有别的页刚换好的。
+- 纯函数（`merge3` / `repairData` / `dataOf`）不碰 DOM，可以在 Node 里用 `vm.runInThisContext` 载入 sync.js 单测。
+- 界面：报头最右 `#btnAcct` 同时是账号入口和同步状态（`data-st` = synced / syncing / offline / error / relogin），`#acctDialog` 里 `acctMode` 在 in / up / up-code / reset / reset-code 之间切换。
 
 ### 导览
 
