@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>日程 · 手工排程</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="fonts.css">
@@ -20,7 +20,7 @@
 })();
 </script>
 </head>
-<body>
+<body data-view="sched">
 <div class="grain" aria-hidden="true"></div>
 
 <header class="masthead">
@@ -37,14 +37,18 @@
     <div class="today-clock" id="todayClock">--:--:--</div>
   </div>
 
-  <div class="mast-actions">
-    <button class="ghost-btn" id="btnTheme" title="切换外观">随系统</button>
-    <button class="ghost-btn" id="btnUndo" title="撤销 (Ctrl+Z)">撤销</button>
-    <button class="ghost-btn" id="btnExportDoc" title="导出为编排好的文档，可选日期范围">文档</button>
-    <button class="ghost-btn" id="btnExport" title="导出为 JSON 备份">导出</button>
-    <button class="ghost-btn" id="btnImport" title="从 JSON 备份恢复">导入</button>
-    <button class="ghost-btn" id="btnTour" title="重看功能导览">导览</button>
+  <div class="mast-actions" id="mastActions">
+    <!-- 桌面上平铺；手机上收进「⋯」弹出的菜单 -->
+    <div class="mast-menu" id="mastMenu">
+      <button class="ghost-btn" id="btnTheme" title="切换外观">随系统</button>
+      <button class="ghost-btn" id="btnUndo" title="撤销 (Ctrl+Z)">撤销</button>
+      <button class="ghost-btn" id="btnExportDoc" title="导出为编排好的文档，可选日期范围">文档</button>
+      <button class="ghost-btn" id="btnExport" title="导出为 JSON 备份">导出</button>
+      <button class="ghost-btn" id="btnImport" title="从 JSON 备份恢复">导入</button>
+      <button class="ghost-btn" id="btnTour" title="重看功能导览">导览</button>
+    </div>
     <button class="ghost-btn acct-btn" id="btnAcct" title="登录后可在多台设备之间同步">登录</button>
+    <button class="ghost-btn more-btn" id="btnMore" aria-label="更多" aria-expanded="false" aria-controls="mastMenu">⋯</button>
     <input type="file" id="fileImport" accept="application/json,.json" hidden>
   </div>
 </header>
@@ -98,6 +102,7 @@
         <button class="nav-btn" id="prevDay" aria-label="前一天">‹</button>
         <div class="datenav-mid">
           <div class="dn-main" id="viewDate">—</div>
+          <div class="dn-short" id="viewDateShort">—</div>
           <input type="date" id="datePick" class="dn-pick" aria-label="选择日期">
         </div>
         <button class="nav-btn" id="nextDay" aria-label="后一天">›</button>
@@ -146,6 +151,13 @@
 
   </section>
 </main>
+
+<!-- 手机底栏：待办 / 新建 / 日程 三块切换；桌面上隐藏 -->
+<nav class="tabbar" id="tabbar" aria-label="切换视图">
+  <button type="button" data-view="tasks">待办<span class="tab-n" id="tabPoolN"></span></button>
+  <button type="button" class="tab-add" data-view="add" aria-label="新建任务">＋</button>
+  <button type="button" class="on" data-view="sched">日程<span class="badge" id="tabBadge" hidden>0</span></button>
+</nav>
 
 <!-- ─────────────── 任务编辑 / 拆分 ─────────────── -->
 <dialog id="taskDialog" class="dlg">

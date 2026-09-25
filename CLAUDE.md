@@ -91,7 +91,18 @@ python -m http.server 5177
 | `paint` | `#surface` 空白处 | 刷出可用时间段 |
 | `resize` | `.slot-h` | 拉伸时间段上下沿 |
 
-要点：移动超过 5px 才 `live = true`（否则算点击）；`drag.result` 在 move 阶段算好，`pointerup` 只负责提交；触屏上 `paint` 直接放弃（留给页面滚动），`new` 只从 `.grip` 起手。
+要点：移动超过 5px 才 `live = true`（否则算点击）；`drag.result` 在 move 阶段算好，`pointerup` 只负责提交，`pointercancel` 走 `dropDrag()` 只收拾不提交；触屏上 `paint` 直接放弃（留给页面滚动），`new` 只从 `.grip` 起手。触屏上的 `move` 要**长按 380ms** 才拎起（`drag.hold` 计时器，其间动超过 8px 就算滚动、放弃）；`.block` 是 `touch-action:pan-y`，拎起之后靠时间轴上非 passive 的 `touchmove` 里 `preventDefault()` 挡住滚动。
+
+### 手机布局（≤720px）
+
+断点写在两处，要一起改：styles.css「手机」区的 `@media (max-width:720px)` 和 app.js 的 `PHONE`。
+
+- 整页变成「报头 + 一页 + 底栏 `#tabbar`」的壳，`body` 固定 `100dvh` 不滚，各页自己滚。两栏靠 `body[data-view="tasks|sched"]` 只显示一栏，`setView()` 切换；视图不进 `state`，也不存盘。日程页藏起来时时间轴 `scrollTop` 会丢，`setView` 用 `tlKeep` 还原。
+- 手机上不从待办拖进时间轴（另一页看不见），改为 `↳` 排入后 `showPlaced()` 翻到日程页闪一下。
+- 报头按钮包在 `#mastMenu` 里：桌面平铺，手机收进 `#btnMore`（⋯）弹出的菜单。`#btnAcct` 在菜单外，始终可见。
+- 对话框在手机上是从底部升起的抽屉；输入框字号一律 16px（iOS 小于 16px 聚焦会放大整页）。
+- 导览步骤可带 `psel` / `pbody`，手机上替换 `sel` / `body`；目标在另一页时 `tourStep` 会先 `setView` 翻过去（不动 state，导览仍是只读）。
+- `(hover:none)` 下本来悬停才露的按钮常驻并放大，时间段拉伸手柄加高到 22px。
 
 ### 账号与同步（sync.js）
 

@@ -31,6 +31,7 @@ const todayKey = () => keyOf(new Date());
 const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
 const cnDate = k => { const d = dateOf(k); return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 星期${WEEK[d.getDay()]}`; };
 const shortDate = k => { const d = dateOf(k); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const midDate = k => { const d = dateOf(k); return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${WEEK[d.getDay()]}`; };
 const shiftKey = (k, n) => { const d = dateOf(k); d.setDate(d.getDate() + n); return keyOf(d); };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hexRgb = h => {
@@ -259,6 +260,8 @@ function renderAll() {
 function renderHeader() {
   $('#todayDate').textContent = cnDate(todayKey());
   $('#viewDate').textContent = cnDate(state.ui.date) + (state.ui.date === todayKey() ? ' · 今天' : '');
+  $('#viewDateShort').textContent = midDate(state.ui.date);   /* 手机上用这个短的，「今天」由按钮亮起来表示 */
+  $('#btnToday').classList.toggle('on', state.ui.date === todayKey());
   $('#datePick').value = state.ui.date;
   $$('#zoom button').forEach(b => b.classList.toggle('on', +b.dataset.z === state.ui.zoom));
 }
@@ -321,6 +324,7 @@ function renderPool() {
     }).join('');
   }
   $('#poolCount').textContent = pending().length;
+  $('#tabPoolN').textContent = pending().length || '';
 }
 const collapsed = new Set();
 
@@ -352,13 +356,12 @@ function renderStats() {
     <div class="stat"><div class="s-lab">可用</div><div class="s-val">${avail ? fmtDH(avail) : '—'}</div></div>
     <div class="stat fill"><div class="s-lab">已排</div><div class="s-val">${used ? fmtDH(used) : '—'}</div><div class="s-bar" style="width:${ratio}%"></div></div>
     <div class="stat"><div class="s-lab">尚余</div><div class="s-val">${avail - used > 0 ? fmtDH(avail - used) : '—'}</div></div>
-    <div class="stat"><div class="s-lab">待办</div><div class="s-val">${pend.length}<small>项</small>${pmin ? ' ' + fmtDH(pmin) : ''}</div></div>`;
+    <div class="stat"><div class="s-lab">待办</div><div class="s-val">${pend.length}<small>项</small>${pmin ? `<span class="s-extra"> ${fmtDH(pmin)}</span>` : ''}</div></div>`;
 }
 
 function renderBadge() {
   const n = overdue().length;
-  const b = $('#reviewBadge');
-  b.hidden = !n; b.textContent = n;
+  for (const b of [$('#reviewBadge'), $('#tabBadge')]) { b.hidden = !n; b.textContent = n; }
 }
 function overdue() {
   const tk = todayKey(), n = nowMin();
@@ -429,9 +432,11 @@ function renderTimeline() {
     if (!em) {
       em = document.createElement('div');
       em.id = 'tlEmpty'; em.className = 'tl-empty';
-      em.innerHTML = `<b>这一天还是空白的</b>先点「＋ 时间段」选取可用时间<br>或直接在时间轴上按住鼠标上下拖动`;
       $('#tlInner').insertBefore(em, $('#surface'));
     }
+    em.innerHTML = isPhone()                       /* 触屏上刷时间段让给了滚动 */
+      ? `<b>这一天还是空白的</b>先点「＋ 时间段」选取可用时间<br>或「沿用昨日」照搬前一天`
+      : `<b>这一天还是空白的</b>先点「＋ 时间段」选取可用时间<br>或直接在时间轴上按住鼠标上下拖动`;
     em.hidden = false;
   } else if (em) em.hidden = true;
 
@@ -551,7 +556,7 @@ function openTask(id) {
   $('#splitSection').hidden = !!t.parentId;
   renderSplit();
   dlg.showModal();
-  $('#fTitle').focus(); $('#fTitle').select();
+  if (!isPhone()) { $('#fTitle').focus(); $('#fTitle').select(); }   /* 手机上一打开就弹键盘太挡事 */
 }
 function renderSplit() {
   const list = $('#splitList');
@@ -720,7 +725,7 @@ $('#pool').addEventListener('click', e => {
     if (!id) return;
     e.stopPropagation();
     const act = btn.dataset.act;
-    if (act === 'place') place(id);
+    if (act === 'place' && place(id) && isPhone()) showPlaced(id);
     if (act === 'unplace') unplace(id);
     if (act === 'edit') openTask(id);
     if (act === 'done') removeTask(id, true);
@@ -745,6 +750,7 @@ $('#btnAutoAll').onclick = () => {
   let ok = 0;
   for (const t of list) if (place(t.id, state.ui.date, true)) ok++;
   save(); renderAll();
+  if (ok && isPhone()) setView('sched');
   toast(ok ? `已排入 ${ok} 项${ok < list.length ? `，${list.length - ok} 项没排下` : ''}` : '可用时间不够，一项都没排下',
     ok ? { label: '撤销', fn: undo } : { label: '添加时间段', fn: () => $('#btnAddSlot').click() });
 };
@@ -780,6 +786,7 @@ $('#slotForm').addEventListener('submit', e => {
   snapshot();
   addSlot(state.ui.date, s, en);
   save(); renderAll();
+  if (isPhone()) $('#slotForm').hidden = true;   /* 手机上表单占地方，加完就收起 */
 });
 $('#slotForm').addEventListener('click', e => {
   const b = e.target.closest('button[data-s]'); if (!b) return;
@@ -813,6 +820,47 @@ function delSlot(id) {
 const surface = $('#surface'), timelineEl = $('#timeline');
 let drag = null, dghost = null, preview = null;
 
+/* ---------------------------------------------------------- 手机：两栏收成两页
+   断点与 styles.css「手机」区的 max-width 保持一致。桌面上两栏都在，
+   body[data-view] 不起作用，底栏也藏着。视图属于这台设备的这一次打开，不进 state。 */
+const PHONE = window.matchMedia ? matchMedia('(max-width: 720px)') : { matches: false };
+const isPhone = () => PHONE.matches;
+let tlKeep = null;   /* 日程页藏起来时时间轴的滚动位置会丢，切回来时还原 */
+function setView(v) {
+  const cur = document.body.dataset.view;
+  if (v === cur) return;
+  if (cur === 'sched') tlKeep = timelineEl.scrollTop;
+  document.body.dataset.view = v;
+  $$('#tabbar button[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  if (v === 'sched') { if (tlKeep === null) scrollToNow(false); else timelineEl.scrollTop = tlKeep; }
+}
+/** 从待办页排入之后，翻到日程页让人看见落在哪 */
+function showPlaced(taskId) {
+  setView('sched');
+  const b = blockOf(taskId);
+  if (b) flashBlock(b.id);
+}
+$('#tabbar').onclick = e => {
+  const b = e.target.closest('button[data-view]'); if (!b) return;
+  if (b.dataset.view !== 'add') return setView(b.dataset.view);
+  setView('tasks');                                /* ＋：直接去写一件新事 */
+  $('.col-tasks').scrollTop = 0;
+  $('#newTitle').focus();
+};
+
+/* 报头「⋯」菜单：手机上收着不常用的按钮；桌面上 #btnMore 不显示 */
+const mastEl = $('#mastActions');
+function toggleMenu(open) {
+  mastEl.classList.toggle('open', open);
+  $('#btnMore').setAttribute('aria-expanded', open);
+}
+$('#btnMore').onclick = () => toggleMenu(!mastEl.classList.contains('open'));
+mastEl.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b && b.id !== 'btnMore' && b.id !== 'btnTheme') toggleMenu(false);   /* 外观可能要连点几下，菜单先留着 */
+});
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#mastActions')) toggleMenu(false); });
+
 function surfaceY(clientY) {
   const r = surface.getBoundingClientRect();
   return clientY - r.top;
@@ -837,7 +885,7 @@ function edgeScroll(e) {
 
 /* — 从待办池拖出 — */
 $('#pool').addEventListener('pointerdown', e => {
-  if (e.button !== 0) return;
+  if (e.button !== 0 || isPhone()) return;        /* 手机上时间轴在另一页，拖不过去，用 ↳ 排入 */
   if (e.target.closest('button')) return;
   const el = e.target.closest('.task');
   if (!el || el.classList.contains('placed')) return;
@@ -865,6 +913,15 @@ surface.addEventListener('pointerdown', e => {
     if (!b) return;
     e.preventDefault();
     drag = { mode: 'move', block: b, el: blk, grab: surfaceY(e.clientY) - m2y(b.start), x0: e.clientX, y0: e.clientY, live: false };
+    if (e.pointerType === 'touch') {
+      /* 触屏：色块铺满了时间轴，在上面划动得是滚动；按住不动一会儿才算拎起来 */
+      drag.hold = setTimeout(() => {
+        if (!drag || drag.el !== blk) return;
+        drag.hold = 0; drag.lifted = true;
+        blk.classList.add('lifted');
+        navigator.vibrate?.(12);
+      }, 380);
+    }
     return;
   }
   if (e.pointerType === 'touch') return;          /* 触屏留给滚动 */
@@ -876,7 +933,9 @@ surface.addEventListener('pointerdown', e => {
 window.addEventListener('pointermove', e => {
   if (!drag) return;
   if (!drag.live) {
-    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
+    const dist = Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0);
+    if (drag.hold) { if (dist > 8) dropDrag(); return; }   /* 没等到长按就动了＝在滚动 */
+    if (dist < 5) return;
     drag.live = true;
     if (drag.mode === 'new') {
       drag.el.classList.add('dragging');
@@ -939,15 +998,30 @@ window.addEventListener('pointermove', e => {
   }
 });
 
-window.addEventListener('pointerup', e => {
-  if (!drag) return;
+/** 收拾拖拽的残局（不提交），返回刚结束的那次拖拽 */
+function dropDrag() {
   const d = drag; drag = null;
+  if (!d) return null;
+  clearTimeout(d.hold);
   dghost?.remove(); dghost = null;
   killPreview();
-  d.el?.classList.remove('dragging');
+  d.el?.classList.remove('dragging', 'lifted');
+  return d;
+}
+window.addEventListener('pointercancel', dropDrag);   /* 浏览器把这次触摸接去滚动了 */
+/* 拎起来之后就不让时间轴再跟着滚；没拎起来的划动照常滚动 */
+timelineEl.addEventListener('touchmove', e => { if (drag?.lifted) e.preventDefault(); }, { passive: false });
+surface.addEventListener('contextmenu', e => { if (drag?.mode === 'move') e.preventDefault(); });   /* 安卓长按会弹菜单 */
 
-  if (!d.live) {                                   /* 没移动 = 点击 */
-    if (d.mode === 'move') { d.el.classList.toggle('sel'); }
+window.addEventListener('pointerup', e => {
+  const d = dropDrag();
+  if (!d) return;
+
+  if (!d.live) {                                   /* 没移动 = 点击：露出 / 收起色块上的按钮 */
+    if (d.mode === 'move') {
+      $$('.block.sel').forEach(x => { if (x !== d.el) x.classList.remove('sel'); });
+      d.el.classList.toggle('sel');
+    }
     return;
   }
   const dk = state.ui.date;
@@ -1265,6 +1339,7 @@ $('#exportForm').addEventListener('submit', e => {
 window.addEventListener('keydown', e => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
+  if (e.key === 'Escape') toggleMenu(false);
   if (!typing && !dlg.open && !rdlg.open && !expDlg.open && !$('#acctDialog').open) {
     if (e.key === 'n') { e.preventDefault(); $('#newTitle').focus(); }
     if (e.key === 't') { e.preventDefault(); $('#btnToday').click(); }
@@ -1278,7 +1353,8 @@ window.addEventListener('keydown', e => {
    ============================================================ */
 const TOUR_SEEN = 'agenda.tour.v1';   /* 单独一个键，不进 state，导入备份不会带回来 */
 
-/* 一步一项：sel 可以是选择器或选择器数组（第一个开亮，其余只描边）；不给 sel 就居中 */
+/* 一步一项：sel 可以是选择器或选择器数组（第一个开亮，其余只描边）；不给 sel 就居中。
+   手机上界面不一样（两页切换、按钮收进 ⋯、没有鼠标），psel / pbody 给了就替换 sel / body */
 const TOUR = [
   {
     title: '先划时间，再放任务',
@@ -1301,7 +1377,13 @@ const TOUR = [
       <li><b>✎</b> 改名称、耗时、标签、备注</li>
       <li><b>✓</b> 直接记为完成</li></ul>
       <b>✎</b> 里还能把一件大事<b>拆分为子任务</b>——拆分后父任务变成一个分组，改为分别安排每条子任务。<br>
-      右上角「自动排程」把整个待办按顺序一次铺进空档。`
+      右上角「自动排程」把整个待办按顺序一次铺进空档。`,
+    pbody: `还没安排的任务都堆在这里，每条右边三个按钮：
+      <ul><li><b>↳</b> 排进最近的空档，排好会翻到日程页给你看</li>
+      <li><b>✎</b> 改名称、耗时、标签、备注</li>
+      <li><b>✓</b> 直接记为完成</li></ul>
+      <b>✎</b> 里还能把一件大事<b>拆分为子任务</b>，分别安排。<br>
+      「自动排程」把整个待办一次铺进空档。`
   },
   {
     title: '今天 · 翻天 · 疏密',
@@ -1325,7 +1407,13 @@ const TOUR = [
       <li>把左边的任务<b>拖进来</b>＝排入日程</li>
       <li>拖色块＝改时间，拖时间段的上下边缘＝拉伸</li></ul>
       落点会吸附到 5 分钟刻度、时间段边界和相邻色块边缘，<em>不会重叠，也不会越出可用时间</em>。<br>
-      实在放不下会先问你，可以选「仍要放入」，顺带把那一段设为可用。`
+      实在放不下会先问你，可以选「仍要放入」，顺带把那一段设为可用。`,
+    pbody: `排进来的任务在这里成了色块：
+      <ul><li><b>点一下</b>色块＝露出 ✓ ↩ ✎ 三个按钮</li>
+      <li><b>长按</b>色块再拖＝改时间</li>
+      <li>拖时间段的上下边缘＝拉伸</li></ul>
+      落点会吸附到 5 分钟刻度和相邻边缘，<em>不会重叠，也不会越出可用时间</em>。<br>
+      平常在上面划动就是上下滚动。`
   },
   {
     title: '这一天的账',
@@ -1336,15 +1424,22 @@ const TOUR = [
   {
     title: '完成 · 未完成 · 结算',
     sel: ['#btnReview', '.done-panel'],
+    psel: ['#btnReview', '#tabbar [data-view="tasks"]'],
     body: `色块上的 <b>✓</b>＝完成，任务从系统里删掉、记进左下「已完成」；<b>↩</b>＝没做完，退回待办等你重排。<br>
-      <b>结算</b>会集中列出所有<em>已经过时</em>的日程（按钮上带红角标），逐条选 完成／未完成／<b>顺延</b>到今天最近的空档。`
+      <b>结算</b>会集中列出所有<em>已经过时</em>的日程（按钮上带红角标），逐条选 完成／未完成／<b>顺延</b>到今天最近的空档。`,
+    pbody: `色块上的 <b>✓</b>＝完成，任务从系统里删掉、记进待办页底部的「已完成」；<b>↩</b>＝没做完，退回待办等你重排。<br>
+      <b>结算</b>会集中列出所有<em>已经过时</em>的日程（带红角标），逐条选 完成／未完成／<b>顺延</b>到今天最近的空档。`
   },
   {
     title: '昼夜 · 撤销 · 备份',
     sel: '.mast-actions',
+    psel: '#btnMore',
     body: `最左边那颗按钮切外观：<b>随系统</b>／<b>浅色</b>／<b>深色</b> 轮着来，夜里自动换上墨色一套。<br>
       <b>撤销</b>（或 <kbd>Ctrl+Z</kbd>）能回退删除、完成、清空、自动排程这些动作，最近四十步都留着。<br>
-      <b>导出</b> 存一份 JSON，<b>导入</b> 恢复——没登录的话，换电脑或清浏览器缓存之前记得导出。`
+      <b>导出</b> 存一份 JSON，<b>导入</b> 恢复——没登录的话，换电脑或清浏览器缓存之前记得导出。`,
+    pbody: `右上角 <b>⋯</b> 里收着这些：<br>
+      <b>外观</b> 在 随系统／浅色／深色 之间轮换；<b>撤销</b> 能回退删除、完成、清空、自动排程这些动作（提示条上也有「撤销」）；
+      <b>导出</b> 存一份 JSON，<b>导入</b> 恢复——没登录的话，清浏览器数据之前记得导出。`
   },
   {
     title: '账号 · 多设备同步',
@@ -1358,7 +1453,10 @@ const TOUR = [
     title: '就这些',
     sel: '#btnTour',
     body: `快捷键：<kbd>N</kbd> 写新任务 · <kbd>T</kbd> 回到今天 · <kbd>←</kbd> <kbd>→</kbd> 翻天 · <kbd>Ctrl+Z</kbd> 撤销。<br>
-      想再看一遍，点这里的<b>导览</b>。`
+      想再看一遍，点这里的<b>导览</b>。`,
+    psel: '#tabbar',
+    pbody: `底栏在 <b>待办</b> 和 <b>日程</b> 两页之间切换，中间的 <b>＋</b> 随手记一件新事。<br>
+      想再看一遍导览，在右上角 <b>⋯</b> 里找。`
   },
 ];
 
@@ -1370,6 +1468,7 @@ function startTour(at) {
   if (dlg.open) dlg.close();
   if (rdlg.open) rdlg.close();
   if ($('#acctDialog').open) $('#acctDialog').close();
+  toggleMenu(false);
   $('#tour').hidden = false;
   tourStep(at || 0);
   $('#tourNext').focus();
@@ -1386,12 +1485,16 @@ function tourStep(i) {
   const st = TOUR[tourAt];
   $('#tourCount').textContent = `${tourAt + 1} / ${n}`;
   $('#tourTitle').textContent = st.title;
-  $('#tourBody').innerHTML = st.body;
+  const phone = isPhone();
+  $('#tourBody').innerHTML = (phone && st.pbody) || st.body;
   $('#tourPrev').disabled = tourAt === 0;
   $('#tourNext').textContent = tourAt === n - 1 ? '开始使用' : '下一步';
   $('#tourDots').innerHTML = TOUR.map((s, k) =>
     `<i${k === tourAt ? ' class="on"' : ''} data-i="${k}" title="${esc(s.title)}"></i>`).join('');
-  tourEls = (st.sel ? [].concat(st.sel) : []).map(s => $(s)).filter(Boolean);
+  const sel = (phone && st.psel) || st.sel;
+  tourEls = (sel ? [].concat(sel) : []).map(s => $(s)).filter(Boolean);
+  /* 手机上目标可能在另一页，先翻过去（视图不进 state，导览照样只读） */
+  if (phone && tourEls[0]?.closest('.col')) setView(tourEls[0].closest('.col-tasks') ? 'tasks' : 'sched');
   tourEls[0]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   tourPlace();
   requestAnimationFrame(tourPlace);   /* 滚动落定后再校一次 */
@@ -1413,6 +1516,7 @@ function tourPlace() {
     box = { l, t, w: Math.min(w, vw - 4 - l), h: Math.min(h, vh - 4 - t) };
     for (const el of tourEls.slice(1)) {
       const q = el.getBoundingClientRect();
+      if (!q.width && !q.height) continue;         /* 藏着的（另一页上的）就不描了 */
       const ring = document.createElement('div');
       ring.className = 'tour-ring';
       ring.style.cssText = `left:${q.left - 4}px;top:${q.top - 4}px;width:${q.width + 8}px;height:${q.height + 8}px`;

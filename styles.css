@@ -59,6 +59,7 @@
   --mono:  "IBM Plex Mono","Cascadia Mono","Consolas",ui-monospace,monospace;
 
   --r: 3px;
+  --gut: 56px;                         /* 时间轴左侧刻度栏宽 */
   --shadow-1: 0 1px 0 rgba(35,33,28,.06), 0 1px 3px rgba(35,33,28,.07);
   --shadow-2: 0 2px 4px rgba(35,33,28,.08), 0 10px 30px -12px rgba(35,33,28,.35);
 }
@@ -170,6 +171,8 @@ body::after{
   color:var(--ink); font-variant-numeric:tabular-nums;
 }
 .mast-actions{display:flex; gap:6px; padding-left:22px; border-left:1px solid var(--rule)}
+.mast-menu{display:flex; gap:6px}
+.more-btn{display:none}
 
 /* ============================ 通用控件 ============================ */
 button{font-family:inherit; color:inherit; cursor:pointer}
@@ -383,6 +386,7 @@ textarea{resize:vertical; line-height:1.55}
 }
 .dn-pick:focus{box-shadow:none}
 .datenav-mid:hover .dn-main{color:var(--cinnabar)}
+.dn-short{display:none}
 .sched-tools{margin-left:auto; display:flex; align-items:center; gap:8px}
 .zoom{display:flex; border:1px solid var(--rule-hard); border-radius:var(--r); overflow:hidden}
 .zoom button{
@@ -455,13 +459,13 @@ textarea{resize:vertical; line-height:1.55}
 .timeline::-webkit-scrollbar{width:9px}
 .timeline::-webkit-scrollbar-thumb{background:var(--paper-3); border-radius:5px; border:2px solid transparent; background-clip:padding-box}
 .tl-inner{position:relative}
-.gutter{position:absolute; left:0; top:0; bottom:0; width:56px; border-right:1px solid var(--rule)}
+.gutter{position:absolute; left:0; top:0; bottom:0; width:var(--gut); border-right:1px solid var(--rule)}
 .hourlab{
   position:absolute; right:8px; transform:translateY(-50%);
   font-family:var(--mono); font-size:11px; color:var(--ink-3); font-variant-numeric:tabular-nums;
 }
 .hourlab.major{color:var(--ink-2); font-weight:500}
-.surface{position:relative; margin-left:56px; touch-action:pan-y}
+.surface{position:relative; margin-left:var(--gut); touch-action:pan-y}
 .hourline{position:absolute; left:0; right:0; height:0; border-top:1px solid var(--rule-soft)}
 .hourline.major{border-top-color:var(--rule)}
 
@@ -505,12 +509,15 @@ textarea{resize:vertical; line-height:1.55}
   border-left:3px solid var(--c);
   border-radius:2px;
   padding:4px 8px 4px 9px;
-  overflow:hidden; cursor:grab; touch-action:none; user-select:none;
+  overflow:hidden; cursor:grab; user-select:none;
+  /* 触屏上色块里划动照常滚动时间轴，长按才拎起来（见 app.js 时间轴交互） */
+  touch-action:pan-y; -webkit-touch-callout:none;
   box-shadow:0 1px 2px rgba(var(--shade),.10);
   transition:box-shadow .16s, filter .16s;
 }
 .block:hover{box-shadow:0 3px 10px -2px rgba(var(--shade),.28); filter:saturate(1.15)}
 .block.dragging{opacity:.55; cursor:grabbing; box-shadow:0 10px 24px -8px rgba(var(--shade),.5)}
+.block.lifted{transform:scale(1.02); box-shadow:0 10px 24px -8px rgba(var(--shade),.5); z-index:30}
 .block.past{filter:grayscale(.45) opacity(.72)}
 .block.overdue{border-style:solid; box-shadow:0 0 0 1px rgba(var(--cinnabar-rgb),.35), 0 1px 2px rgba(var(--shade),.1)}
 .block.overdue::after{
@@ -567,9 +574,9 @@ textarea{resize:vertical; line-height:1.55}
 .ghost.paint span{color:var(--ink-2)}
 
 /* 现在 */
-.nowline{position:absolute; left:-56px; right:0; height:0; z-index:40; pointer-events:none}
+.nowline{position:absolute; left:calc(-1 * var(--gut)); right:0; height:0; z-index:40; pointer-events:none}
 .nowline::before{
-  content:""; position:absolute; left:56px; right:0; top:0; height:1.5px;
+  content:""; position:absolute; left:var(--gut); right:0; top:0; height:1.5px;
   background:linear-gradient(90deg,var(--cinnabar),rgba(var(--cinnabar-rgb),.25));
 }
 .nowline .nowtag{
@@ -580,7 +587,7 @@ textarea{resize:vertical; line-height:1.55}
 }
 .tl-empty{
   position:sticky; top:34%; z-index:5; height:0; overflow:visible;
-  text-align:center; padding-left:56px;
+  text-align:center; padding-left:var(--gut);
   font-family:var(--sans); font-size:12.5px; color:var(--ink-3); line-height:2; pointer-events:none;
 }
 .tl-empty b{display:block; font-family:var(--serif); font-size:16px; color:var(--ink-2); font-weight:400; margin-bottom:4px}
@@ -792,3 +799,182 @@ dialog.dlg form, .rv{padding:22px 24px 18px; max-height:88vh; overflow-y:auto}
   .today{margin-left:auto}
   .mast-actions{padding-left:0; border-left:none}
 }
+
+/* ============================ 触屏 ============================ */
+/* 没有悬停：本来鼠标移上去才露出的按钮一直露着，并且放大到手指点得中 */
+@media (hover:none){
+  .t-acts{opacity:1}
+  .t-acts button{width:32px; height:32px; font-size:15px}
+  .task:hover{transform:none; box-shadow:var(--shadow-1)}
+  .b-acts button{width:28px; height:28px; font-size:13px}
+  .block.tiny .b-acts button{width:22px; height:22px; font-size:11px}
+  .slot-h{height:22px}
+  .slot-h.t{top:-11px} .slot-h.b{bottom:-11px}
+  .slot-h::after{top:9px; opacity:.35}
+}
+
+/* ============================ 手机 ============================ */
+/* 断点与 app.js 的 PHONE 保持一致。
+   整页变成「报头 + 一页内容 + 底栏」的壳：两栏收成两页，由 body[data-view] 决定显示哪一页，
+   每页自己滚动，不再有页面套时间轴的双层滚动。 */
+.tabbar{display:none}
+@media (max-width:720px){
+  :root{--gut:44px}
+  body{
+    display:flex; flex-direction:column; overflow:hidden;
+    height:100vh; height:100dvh;
+  }
+  body::after{box-shadow:inset 0 0 90px var(--vignette)}
+  button{-webkit-tap-highlight-color:transparent}
+  /* iOS 上输入框字号小于 16px，一聚焦整页就被放大 */
+  input[type=text], input[type=email], input[type=password], input[type=number],
+  input[type=time], input[type=date], textarea, select{font-size:16px}
+
+  /* ---- 报头：压成一行，不常用的按钮收进「⋯」 ---- */
+  .masthead{
+    flex:none; flex-wrap:nowrap; gap:10px;
+    padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
+  }
+  .brand{gap:9px}
+  .seal{width:28px; height:28px; font-size:16px}
+  .brand-text h1{font-size:19px; letter-spacing:.14em}
+  .kicker, .today-date{display:none}
+  .today{margin-left:auto}
+  .today-clock{font-size:16px; color:var(--ink-2)}
+  .mast-actions{position:relative; flex:none; gap:6px; padding-left:0; border-left:none}
+  .mast-actions > .ghost-btn{min-height:34px}
+  .more-btn{display:inline-grid; place-items:center; width:34px; padding:0; font-size:17px; line-height:1}
+  .mast-actions.open .more-btn{background:var(--solid); color:var(--solid-fg); border-color:var(--solid)}
+  .mast-menu{
+    display:none; position:absolute; top:calc(100% + 9px); right:0; z-index:30;
+    flex-direction:column; gap:1px; min-width:176px; padding:5px;
+    background:var(--paper-hi); border:1px solid var(--rule-hard); border-radius:var(--r);
+    box-shadow:var(--shadow-2);
+  }
+  .mast-actions.open .mast-menu{display:flex}
+  .mast-menu .ghost-btn{
+    border:none; background:none; text-align:left;
+    font-size:14px; letter-spacing:.08em; padding:11px 12px; color:var(--ink);
+  }
+  .mast-menu .ghost-btn + .ghost-btn{border-top:1px solid var(--rule-soft); border-radius:0}
+  #btnTheme::before{content:"外观 · "; color:var(--ink-3)}
+
+  /* ---- 两栏 → 两页 ---- */
+  .layout{flex:1; min-height:0; height:auto; display:flex; flex-direction:column}
+  .col{flex:1; min-height:0}
+  body[data-view="sched"] .col-tasks,
+  body[data-view="tasks"] .col-schedule{display:none}
+  .col-tasks{
+    border-right:none; border-bottom:none; background:none;
+    overflow-y:auto; overscroll-behavior:contain;
+    padding:14px 14px 28px;
+  }
+  .col-schedule{padding:10px 12px 0}
+  .timeline{flex:1; height:auto; min-height:0; overscroll-behavior:contain}
+  .tl-hint{display:none}
+
+  /* ---- 待办页 ---- */
+  .panel{margin-bottom:22px}
+  .panel-title .link-btn{font-size:12px; padding:6px 2px}
+  .quick-dur button{font-size:12px; padding:6px 9px}
+  .tagchip{font-size:13px; padding:6px 12px 6px 10px}
+  #btnAdd{width:100%; padding:12px}
+  .task .grip{display:none}             /* 手机上不从待办拖，用 ↳ 排入 */
+  .task{padding:8px 6px 8px 11px}
+  .group-head{padding:6px 6px 6px 10px}
+
+  /* ---- 日程页：日期一行，疏密与结算一行 ---- */
+  .sched-head{gap:8px; margin-bottom:8px}
+  .datenav{flex:1 1 100%; min-width:0; gap:6px}
+  .datenav-mid{flex:1; min-width:0; text-align:center}
+  .dn-main{display:none}
+  .dn-short{
+    display:block; font-family:var(--disp); font-size:17px; letter-spacing:.04em;
+    line-height:34px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    font-variation-settings:"opsz" 96;
+  }
+  .datenav-mid:hover .dn-short{color:var(--cinnabar)}
+  .nav-btn{width:34px; height:34px; flex:none; font-size:18px}
+  #btnToday{padding:8px 12px}
+  #btnToday.on{background:var(--solid); color:var(--solid-fg); border-color:var(--solid)}
+  .sched-tools{margin-left:0; flex:1 1 100%; justify-content:space-between}
+  .zoom button{padding:7px 14px; font-size:12.5px}
+  #btnReview{padding:7px 14px}
+
+  .stats{margin-bottom:8px}
+  .stat{padding:5px 8px}
+  .stat .s-lab{font-size:9.5px; letter-spacing:.08em}
+  .stat .s-val{font-size:14.5px}
+  .stat .s-extra{display:none}
+
+  .availbar{padding:6px 8px; gap:6px 8px; margin-bottom:8px}
+  .ab-label{display:none}
+  .ab-chips{min-width:0}
+  .slotchip{padding:4px 4px 4px 8px}
+  .slotchip button{font-size:16px; padding:0 5px}
+  .ab-actions .ghost-btn{padding:7px 10px}
+  .slot-form{gap:8px}
+  .slot-form input[type=time]{flex:1; min-width:0}
+  .presets{margin-left:0; width:100%}
+  .presets button{flex:1; padding:7px 0; font-size:12px}
+
+  /* ---- 底栏 ---- */
+  .tabbar{
+    flex:none; position:relative; z-index:20;
+    display:flex; align-items:center;
+    padding:0 10px env(safe-area-inset-bottom);
+    border-top:1.5px solid var(--rule-hard);
+    background:linear-gradient(0deg, var(--paper-2), var(--paper));
+  }
+  .tabbar button{
+    flex:1; position:relative; align-self:stretch;
+    display:flex; align-items:center; justify-content:center; gap:5px;
+    padding:14px 0 15px; border:none; background:none;
+    font-family:var(--sans); font-size:14px; letter-spacing:.24em; color:var(--ink-3);
+  }
+  .tabbar button.on{color:var(--ink); font-weight:500}
+  .tabbar button.on::before{
+    content:""; position:absolute; top:-1.5px; left:30%; right:30%; height:2.5px;
+    background:var(--cinnabar); border-radius:0 0 2px 2px;
+  }
+  .tabbar .tab-add{
+    flex:none; align-self:center; width:44px; height:44px; margin:0 14px; padding:0;
+    border-radius:50%; background:var(--cinnabar); color:var(--on-accent);
+    font-size:22px; letter-spacing:0; font-weight:400;
+    box-shadow:0 4px 12px -4px rgba(var(--cinnabar-rgb),.8);
+  }
+  .tabbar .tab-add:active{transform:scale(.94)}
+  .tab-n{font-family:var(--mono); font-size:11.5px; letter-spacing:0; color:var(--cinnabar)}
+  .tabbar .badge{margin-left:0; letter-spacing:0}
+
+  /* ---- 提示条：浮在底栏上面 ---- */
+  .toast-wrap{bottom:calc(74px + env(safe-area-inset-bottom)); width:calc(100vw - 24px)}
+  .toast{max-width:100%; font-size:13px; padding:10px 14px}
+
+  /* ---- 对话框改成从底部升起的抽屉 ---- */
+  dialog.dlg{
+    width:100%; max-width:100%; margin:auto 0 0;
+    border-radius:10px 10px 0 0;
+    animation:sheet .26s cubic-bezier(.2,.9,.3,1);
+  }
+  dialog.dlg form, .rv{
+    max-height:90vh; max-height:90dvh;
+    padding:18px 16px calc(14px + env(safe-area-inset-bottom));
+  }
+  .field{gap:10px}
+  .field .lbl{width:34px; padding-top:10px}
+  .dur-block{gap:8px}
+  .dlg-foot{flex-wrap:wrap; margin-top:16px}
+  .dlg-foot .ghost-btn, .dlg-foot .primary-btn{padding:10px 14px}
+  /* 子任务：名称独占一行，时长 / 标签 / 删除排在下一行 */
+  .subrow{flex-wrap:wrap; row-gap:5px; padding-bottom:7px; border-bottom:1px dashed var(--rule-soft)}
+  .subrow .s-t{flex:1 1 calc(100% - 22px)}
+  .subrow .s-m{margin-left:22px}
+  .subrow select{flex:1; width:auto}
+  .subrow .s-x{width:34px; height:34px}
+  /* 结算：按钮挪到下一行 */
+  .rvitem{flex-wrap:wrap}
+  .rv-btns{width:100%; justify-content:flex-end}
+  .rv-btns button{padding:8px 14px; font-size:12.5px}
+}
+@keyframes sheet{from{transform:translateY(48px); opacity:0}}
