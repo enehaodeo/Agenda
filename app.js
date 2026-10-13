@@ -117,6 +117,35 @@ const blocksFor = dk => state.blocks.filter(b => b.date === dk).sort((a, b) => a
 const leaves    = () => state.tasks.filter(t => !isParent(t));
 const pending   = () => leaves().filter(t => !blockOf(t.id));
 
+/* 截止时间：t.due = {date, min}，min 是当天的分钟数，1440＝那天之内都行；不设就没有 due。
+   子任务同时受父任务的截止约束，取较早的那个 */
+const dueBefore = (a, b) => a.date < b.date || (a.date === b.date && a.min < b.min);
+function dueOf(t) {
+  const own = t.due || null, par = (t.parentId && taskById(t.parentId)?.due) || null;
+  if (!own || !par) return own || par;
+  return dueBefore(par, own) ? par : own;
+}
+/** dk 这天任务最晚能排到几点结束：没有截止＝1440，截止日之后＝-1（哪儿都放不下） */
+function dueCap(t, dk) {
+  const d = t && dueOf(t);
+  if (!d || dk < d.date) return 1440;
+  return dk === d.date ? d.min : -1;
+}
+/** 截止时间已经过了 */
+const dueGone = t => {
+  const d = dueOf(t); if (!d) return false;
+  const tk = todayKey();
+  return d.date < tk || (d.date === tk && d.min <= nowMin());
+};
+function fmtDue(d) {
+  const tk = todayKey();
+  const day = d.date === tk ? '今天' : d.date === shiftKey(tk, 1) ? '明天' : shortDate(d.date);
+  return d.min >= 1440 ? day : `${day} ${fmtT(d.min)}`;
+}
+/** 从一对日期 / 时刻输入框读出截止时间；日期空着＝不设，时刻空着＝当天之内 */
+const readDue = (dEl, tEl) => dEl.value ? { date: dEl.value, min: tEl.value ? hm2min(tEl.value) : 1440 } : null;
+const writeDue = (d, dEl, tEl) => { dEl.value = d ? d.date : ''; tEl.value = d && d.min < 1440 ? min2hm(d.min) : ''; };
+
 function freeIntervals(dk, ignoreId, base) {
   let iv = base || slotsFor(dk).map(s => ({ s: s.start, e: s.end }));
   for (const b of blocksFor(dk)) {
@@ -131,14 +160,14 @@ function freeIntervals(dk, ignoreId, base) {
   }
   return iv.sort((a, b) => a.s - b.s);
 }
-/** 找到离 desired 最近的合法起点；floor 之前的时间不考虑；放不下返回 null */
-function findPlacement(dk, dur, desired, ignoreId, anywhere, floor) {
+/** 找到离 desired 最近的合法起点；floor 之前的时间不考虑，结束不晚于 ceil（截止时间，见 dueCap）；放不下返回 null */
+function findPlacement(dk, dur, desired, ignoreId, anywhere, floor, ceil = 1440) {
   const base = anywhere ? [{ s: 0, e: 1440 }] : null;
   let best = null;
   for (const iv of freeIntervals(dk, ignoreId, base)) {
-    const lo = Math.max(iv.s, floor || 0);
-    if (iv.e - lo < dur) continue;
-    const s = clamp(desired, lo, iv.e - dur);
+    const lo = Math.max(iv.s, floor || 0), hi = Math.min(iv.e, ceil);
+    if (hi - lo < dur) continue;
+    const s = clamp(desired, lo, hi - dur);
     const d = Math.abs(s - desired);
     if (!best || d < best.d) best = { start: s, d };
   }
@@ -277,6 +306,7 @@ function taskRow(t, sub) {
   const blk = blockOf(t.id);
   const cls = ['task']; if (sub) cls.push('sub'); if (blk) cls.push('placed');
   const when = blk ? `${blk.date === state.ui.date ? '' : shortDate(blk.date) + ' '}${fmtT(blk.start)}` : '';
+  const due = t.due ? dueTag(t.due, !blk && dueGone(t)) : '';
   return `<div class="${cls.join(' ')}" data-id="${t.id}" style="${cvars(tag.color)}">
     ${blk ? '<span class="grip" style="opacity:.4">✓</span>' : '<span class="grip">⠿</span>'}
     <div class="t-main">
@@ -284,6 +314,7 @@ function taskRow(t, sub) {
       <div class="t-meta">
         <span class="m-dur">${fmtD(t.minutes)}</span>
         <span class="m-tag"><i></i>${esc(tag.name)}</span>
+        ${due}
         ${blk ? `<span class="m-dur" style="color:var(--cinnabar)">已排 ${when}</span>` : ''}
       </div>
     </div>
@@ -297,6 +328,10 @@ function taskRow(t, sub) {
   </div>`;
 }
 
+/** 待办里的截止角标；过了截止还没排上的标朱砂 */
+const dueTag = (d, late) =>
+  `<span class="m-due${late ? ' late' : ''}" title="${late ? '已过截止时间，改一下截止再排' : '排程不会越过这个时间'}">${late ? '已逾期 · ' : '截止 '}${fmtDue(d)}</span>`;
+
 function renderPool() {
   const box = $('#pool');
   const tops = state.tasks.filter(t => !t.parentId);
@@ -309,11 +344,13 @@ function renderPool() {
       const total = taskMins(p);
       const doneN = kids.filter(k => blockOf(k.id)).length;
       const closed = collapsed.has(p.id) ? ' closed' : '';
+      const late = p.due && dueGone(p) && kids.some(k => !blockOf(k.id));
       return `<div class="group${closed}" data-gid="${p.id}">
         <div class="group-head">
           <span class="caret">▼</span>
           <span class="g-title">${esc(p.title)}</span>
           <span class="g-meta">${fmtD(total)} · 已排 ${doneN}/${kids.length}</span>
+          ${p.due ? dueTag(p.due, late) : ''}
           <div class="t-acts" style="opacity:1">
             <button data-act="edit" data-id="${p.id}" title="编辑 / 拆分">✎</button>
             <button data-act="del" data-id="${p.id}" title="删除整组">×</button>
@@ -522,15 +559,30 @@ $('#newQuick').onclick = e => {
   const m = +b.dataset.min;
   $('#newH').value = Math.floor(m / 60); $('#newM').value = m % 60;
 };
+/* 截止时间（可选）：平时收着，点「＋ 截止时间」才展开 */
+function openNewDue(open) {
+  $('#newDueTog').hidden = open;
+  $('#newDueFields').hidden = !open;
+  if (open) { if (!$('#newDueD').value) $('#newDueD').value = state.ui.date; }
+  else { $('#newDueD').value = ''; $('#newDueT').value = ''; }
+}
+$('#newDueTog').onclick = () => { openNewDue(true); $('#newDueT').focus(); };
+$('#newDueX').onclick = () => openNewDue(false);
+
 function addTask() {
   const title = $('#newTitle').value.trim();
   if (!title) { $('#newTitle').focus(); return toast('先写个任务名'); }
   const mins = (+$('#newH').value || 0) * 60 + (+$('#newM').value || 0);
   if (mins < 1) return toast('耗时至少 1 分钟');
+  if (!$('#newDueD').value && $('#newDueT').value) return toast('截止时间要先选日期');
+  const due = readDue($('#newDueD'), $('#newDueT'));
   snapshot();
-  state.tasks.push({ id: uid(), title, minutes: mins, tagId: newTag, note: '', parentId: null, createdAt: Date.now() });
+  const t = { id: uid(), title, minutes: mins, tagId: newTag, note: '', parentId: null, createdAt: Date.now() };
+  if (due) t.due = due;
+  state.tasks.push(t);
   save();
   $('#newTitle').value = '';
+  openNewDue(false);
   renderPool(); renderStats();
   $('#newTitle').focus();
 }
@@ -551,6 +603,12 @@ function openTask(id) {
   $('#fH').value = Math.floor(t.minutes / 60);
   $('#fM').value = t.minutes % 60;
   $('#fNote').value = t.note || '';
+  writeDue(t.due, $('#fDueD'), $('#fDueT'));
+  const par = t.parentId ? taskById(t.parentId) : null;
+  $('#fDueHint').textContent = par?.due
+    ? `父任务「${par.title}」截止 ${fmtDue(par.due)}，两者以较早的为准。`
+    : t.parentId ? '可留空；只填日期＝当天之内。排程不会越过截止时间。'
+      : '可留空；只填日期＝当天之内。排程不会越过截止时间，子任务也一样。';
   renderTagPicker($('#fTags'), fTag, v => fTag = v);
   subDraft = childrenOf(id).map(c => ({ id: c.id, title: c.title, minutes: c.minutes, tagId: c.tagId }));
   $('#splitSection').hidden = !!t.parentId;
@@ -600,6 +658,7 @@ function renderSplitSum() {
     : '尚未拆分';
 }
 $('#fH').oninput = $('#fM').oninput = renderSplitSum;
+$('#fDueX').onclick = () => writeDue(null, $('#fDueD'), $('#fDueT'));
 $('#addSub').onclick = () => {
   const target = (+$('#fH').value || 0) * 60 + (+$('#fM').value || 0);
   const used = subDraft.reduce((a, s) => a + (+s.minutes || 0), 0);
@@ -626,10 +685,13 @@ $('#taskForm').addEventListener('submit', e => {
   if (mins < 1 && !subDraft.length) return toast('耗时至少 1 分钟');
   const bad = subDraft.find(s => !s.title.trim() || (+s.minutes || 0) < 1);
   if (bad) return toast('子任务需要名称和大于 0 的耗时');
+  if (!$('#fDueD').value && $('#fDueT').value) return toast('截止时间要先选日期');
 
   snapshot();
   t.title = title; t.tagId = fTag; t.note = $('#fNote').value.trim();
   t.minutes = Math.max(mins, 1);
+  const due = readDue($('#fDueD'), $('#fDueT'));
+  if (due) t.due = due; else delete t.due;   /* 先定截止，下面的 revalidate 才按新的来 */
 
   /* 同步子任务 */
   const keep = new Set(subDraft.filter(s => s.id).map(s => s.id));
@@ -652,16 +714,18 @@ $('#taskForm').addEventListener('submit', e => {
 });
 dlg.addEventListener('close', () => { editId = null; subDraft = []; });
 
-/** 时长变化后重新校验已排日程 */
+/** 时长或截止时间变化后重新校验已排日程：尽量就近挪一挪，挪不动就退回待办 */
 function revalidate(taskId) {
   const b = blockOf(taskId); if (!b) return;
   const t = taskById(taskId); if (!t) return;
-  const d = taskMins(t);
-  if (b.end - b.start === d) return;
-  const s = findPlacement(b.date, d, b.start, b.id);
+  const d = taskMins(t), cap = dueCap(t, b.date);
+  if (b.end - b.start === d && b.end <= cap) return;
+  const s = findPlacement(b.date, d, b.start, b.id, false, 0, cap);
   if (s === null) {
     state.blocks = state.blocks.filter(x => x.id !== b.id);
-    toast(`「${t.title}」时长变更后放不下，已退回待办`);
+    toast(b.end - b.start !== d
+      ? `「${t.title}」时长变更后放不下，已退回待办`
+      : `「${t.title}」在截止时间之前放不下，已退回待办`);
   } else { b.start = s; b.end = s + d; }
 }
 
@@ -704,10 +768,12 @@ function place(taskId, dk = state.ui.date, quiet) {
   const t = taskById(taskId); if (!t || isParent(t)) return false;
   if (blockOf(taskId)) return false;
   const d = taskMins(t);
-  const floor = floorOf(dk);
-  const s = findPlacement(dk, d, floor, null, false, floor);
+  const floor = floorOf(dk), cap = dueCap(t, dk);
+  const s = findPlacement(dk, d, floor, null, false, floor, cap);
   if (s === null) {
-    if (!quiet) toast(`${shortDate(dk)} 可用时间不足，放不下 ${fmtD(d)}`, { label: '添加时间段', fn: () => $('#btnAddSlot').click() });
+    if (quiet) return false;
+    if (cap - floor < d) toast(`「${t.title}」截止于 ${fmtDue(dueOf(t))}，${shortDate(dk)} 已经来不及排了`);
+    else toast(`${shortDate(dk)}${cap < 1440 ? ' 截止前' : ''}可用时间不足，放不下 ${fmtD(d)}`, { label: '添加时间段', fn: () => $('#btnAddSlot').click() });
     return false;
   }
   if (!quiet) snapshot();
@@ -744,7 +810,10 @@ $('#pool').addEventListener('dblclick', e => {
 });
 
 $('#btnAutoAll').onclick = () => {
-  const list = pending();
+  /* 有截止的先排、截止早的更先（sort 是稳定的，其余照原顺序） */
+  const list = pending().map(t => [t, dueOf(t)])
+    .sort(([, a], [, b]) => !a || !b ? (!a) - (!b) : dueBefore(a, b) ? -1 : dueBefore(b, a) ? 1 : 0)
+    .map(([t]) => t);
   if (!list.length) return toast('待办已经空了');
   snapshot();
   let ok = 0;
@@ -877,6 +946,22 @@ function showPreview(top, height, label, kind) {
   preview.innerHTML = `<span>${label}</span>`;
 }
 function killPreview() { preview?.remove(); preview = null; }
+/* 拖着有截止时间的任务时，把截止之后的那段时间轴罩上斜纹 */
+let dueZone = null;
+function showDueZone(task) {
+  const cap = dueCap(task, state.ui.date);
+  if (cap >= VIEW.hi) return;
+  const top = cap < 0 ? 0 : m2y(Math.max(cap, VIEW.lo));
+  dueZone = document.createElement('div');
+  dueZone.className = 'duezone';
+  dueZone.style.top = top + 'px';
+  dueZone.style.height = (m2y(VIEW.hi) - top) + 'px';
+  dueZone.innerHTML = `<span>${cap < 0 ? '已过截止日期' : '截止 ' + fmtT(cap)}</span>`;
+  surface.appendChild(dueZone);
+}
+function killDueZone() { dueZone?.remove(); dueZone = null; }
+/** 放不下时的预览文案：是截止时间挡住的就直说 */
+const badLabel = (want, dur, cap) => want + dur > cap ? '超过截止时间' : '此处放不下';
 function edgeScroll(e) {
   const r = timelineEl.getBoundingClientRect();
   if (e.clientY < r.top + 46) timelineEl.scrollTop -= 12;
@@ -945,7 +1030,11 @@ window.addEventListener('pointermove', e => {
       dghost.style.cssText = cvars(tag.color);
       dghost.innerHTML = `${esc(drag.task.title)}<em>${fmtD(taskMins(drag.task))}</em>`;
       document.body.appendChild(dghost);
-    } else if (drag.mode === 'move') drag.el.classList.add('dragging');
+      showDueZone(drag.task);
+    } else if (drag.mode === 'move') {
+      drag.el.classList.add('dragging');
+      showDueZone(taskById(drag.block.taskId));
+    }
   }
   const dk = state.ui.date;
   edgeScroll(e);
@@ -954,20 +1043,20 @@ window.addEventListener('pointermove', e => {
     dghost.style.left = e.clientX + 'px';
     dghost.style.top = e.clientY + 'px';
     if (!overSurface(e)) return killPreview();
-    const dur = taskMins(drag.task);
+    const dur = taskMins(drag.task), cap = dueCap(drag.task, dk);
     const want = clamp(magnet(dk, y2m(surfaceY(e.clientY)), null), 0, 1440 - dur);
-    const s = findPlacement(dk, dur, want, null);
+    const s = findPlacement(dk, dur, want, null, false, 0, cap);
     drag.result = s;
-    if (s === null) showPreview(m2y(want), dur * VIEW.ppm, '此处放不下', 'bad');
+    if (s === null) showPreview(m2y(want), dur * VIEW.ppm, badLabel(want, dur, cap), 'bad');
     else showPreview(m2y(s), dur * VIEW.ppm, `${fmtT(s)} – ${fmtT(s + dur)}`);
     return;
   }
   if (drag.mode === 'move') {
-    const b = drag.block, dur = b.end - b.start;
+    const b = drag.block, dur = b.end - b.start, cap = dueCap(taskById(b.taskId), dk);
     const want = clamp(magnet(dk, y2m(surfaceY(e.clientY) - drag.grab), b.id), 0, 1440 - dur);
-    const s = findPlacement(dk, dur, want, b.id);
+    const s = findPlacement(dk, dur, want, b.id, false, 0, cap);
     drag.result = s;
-    if (s === null) showPreview(m2y(want), dur * VIEW.ppm, '此处放不下', 'bad');
+    if (s === null) showPreview(m2y(want), dur * VIEW.ppm, badLabel(want, dur, cap), 'bad');
     else showPreview(m2y(s), dur * VIEW.ppm, `${fmtT(s)} – ${fmtT(s + dur)}`);
     return;
   }
@@ -1004,7 +1093,7 @@ function dropDrag() {
   if (!d) return null;
   clearTimeout(d.hold);
   dghost?.remove(); dghost = null;
-  killPreview();
+  killPreview(); killDueZone();
   d.el?.classList.remove('dragging', 'lifted');
   return d;
 }
@@ -1028,13 +1117,14 @@ window.addEventListener('pointerup', e => {
 
   if (d.mode === 'new') {
     if (!overSurface(e)) return;
-    const dur = taskMins(d.task);
+    const dur = taskMins(d.task), cap = dueCap(d.task, dk);
     if (d.result === null) {
+      if (cap < dur) return toast(`「${d.task.title}」截止于 ${fmtDue(dueOf(d.task))}，不能排在这一天`);
       const want = clamp(snap(y2m(surfaceY(e.clientY))), 0, 1440 - dur);
-      return toast('该位置没有可用时间', {
+      return toast(want + dur > cap ? `截止 ${fmtT(cap)} 之前这里没有可用时间` : '该位置没有可用时间', {
         label: '仍要放入', fn: () => {
-          const s = findPlacement(dk, dur, want, null, true);
-          if (s === null) return toast('这一天已经排满了');
+          const s = findPlacement(dk, dur, want, null, true, 0, cap);
+          if (s === null) return toast(cap < 1440 ? '截止之前已经排满了' : '这一天已经排满了');
           snapshot();
           addSlot(dk, s, s + dur);
           const b = { id: uid(), taskId: d.task.id, date: dk, start: s, end: s + dur };
@@ -1119,10 +1209,10 @@ $('#rvList').onclick = e => {
   if (act === 'done') removeTask(b.taskId, true);
   if (act === 'back') unplace(b.taskId);
   if (act === 'later') {
-    const dur = b.end - b.start;
-    const fl = floorOf(todayKey());
-    const s = findPlacement(todayKey(), dur, fl, b.id, false, fl);
-    if (s === null) return toast('今天已经没有空档了');
+    const dur = b.end - b.start, t = taskById(b.taskId);
+    const fl = floorOf(todayKey()), cap = dueCap(t, todayKey());
+    const s = findPlacement(todayKey(), dur, fl, b.id, false, fl, cap);
+    if (s === null) return toast(cap - fl < dur ? `「${t.title}」已经来不及在截止前做完了，可以改一下截止时间` : '今天已经没有空档了');
     snapshot();
     b.date = todayKey(); b.start = s; b.end = s + dur;
     save(); renderAll();
@@ -1282,7 +1372,8 @@ function buildDocHTML(startKey, endKey, opts) {
     if (list.length) {
       const rows = list.map(t => {
         const tag = tagById(t.tagId);
-        return `<li><span class="tagdot" style="background:${esc(tag.color)}"></span>${esc(t.title)} <small>· ${esc(tag.name)} · ${fmtD(t.minutes)}</small></li>`;
+        const due = dueOf(t);
+        return `<li><span class="tagdot" style="background:${esc(tag.color)}"></span>${esc(t.title)} <small>· ${esc(tag.name)} · ${fmtD(t.minutes)}${due ? ` · 截止 ${shortDate(due.date)}${due.min < 1440 ? ' ' + fmtT(due.min) : ''}` : ''}</small></li>`;
       }).join('');
       pendingSection = `<section class="pending"><h2>未排程的待办</h2><ul>${rows}</ul></section>`;
     }
@@ -1367,6 +1458,7 @@ const TOUR = [
     sel: '.compose',
     body: `填名称和<b>时／分</b>，或者直接点 <kbd>15</kbd> <kbd>30</kbd> <kbd>45</kbd> 这些快捷时长。<br>
       挑一个标签（<b>＋ 标签</b> 可以自己造，八种颜料色任选），再「添加到待办」。<br>
+      有期限的事点「<b>＋ 截止时间</b>」，之后不管怎么排都不会越过它。<br>
       在名称框里按 <kbd>Enter</kbd> 也能提交。`
   },
   {
@@ -1377,7 +1469,7 @@ const TOUR = [
       <li><b>✎</b> 改名称、耗时、标签、备注</li>
       <li><b>✓</b> 直接记为完成</li></ul>
       <b>✎</b> 里还能把一件大事<b>拆分为子任务</b>——拆分后父任务变成一个分组，改为分别安排每条子任务。<br>
-      右上角「自动排程」把整个待办按顺序一次铺进空档。`,
+      右上角「自动排程」把整个待办按顺序一次铺进空档，有截止的先排。`,
     pbody: `还没安排的任务都堆在这里，每条右边三个按钮：
       <ul><li><b>↳</b> 排进最近的空档，排好会翻到日程页给你看</li>
       <li><b>✎</b> 改名称、耗时、标签、备注</li>

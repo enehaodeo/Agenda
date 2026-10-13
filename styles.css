@@ -299,6 +299,25 @@ textarea{resize:vertical; line-height:1.55}
 }
 .tag-swatches i.on{border-color:var(--ink)}
 
+/* ---------------- 截止时间 ---------------- */
+.compose-due{margin:-3px 0 11px}
+.due-tog{
+  background:none; border:1px dashed var(--rule-hard); border-radius:20px;
+  font-family:var(--sans); font-size:12px; padding:3px 10px; color:var(--ink-4);
+}
+.due-tog:hover{color:var(--cinnabar); border-color:var(--cinnabar)}
+.due-row{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+.due-row input[type=date]{flex:1 1 130px; min-width:0}
+.due-row input[type=time]{flex:0 1 124px; min-width:0}
+.due-lbl{font-family:var(--sans); font-size:11px; letter-spacing:.14em; color:var(--ink-3)}
+.due-x{
+  width:24px; height:24px; flex:none; border:none; background:transparent;
+  color:var(--ink-4); font-size:15px; border-radius:2px;
+}
+.due-x:hover{background:var(--cinnabar); color:var(--on-accent)}
+.due-block{flex:1; min-width:0}
+.due-hint{margin:5px 0 0; font-family:var(--sans); font-size:11px; color:var(--ink-4); line-height:1.6}
+
 /* ---------------- 待办 ---------------- */
 .pool{display:flex; flex-direction:column; gap:6px}
 .task{
@@ -322,8 +341,15 @@ textarea{resize:vertical; line-height:1.55}
 .t-title{font-size:14.5px; line-height:1.35; word-break:break-word}
 .t-meta{
   margin-top:2px; font-family:var(--sans); font-size:11px; color:var(--ink-3);
-  display:flex; align-items:center; gap:6px;
+  display:flex; align-items:center; gap:2px 6px; flex-wrap:wrap;
 }
+/* 截止角标：平时是墨色细框，过了截止还没排上就转朱砂 */
+.m-due{
+  font-family:var(--sans); font-size:10.5px; color:var(--ink-3); white-space:nowrap;
+  border:1px solid var(--rule-hard); border-radius:2px; padding:0 4px; line-height:1.5;
+}
+.m-due.late{color:var(--cinnabar); border-color:rgba(var(--cinnabar-rgb),.5); background:rgba(var(--cinnabar-rgb),.07)}
+.group-head .m-due{flex:none}
 .t-meta .m-dur{font-family:var(--mono); color:var(--ink-2)}
 .t-meta .m-tag{display:inline-flex; align-items:center; gap:4px}
 .t-meta .m-tag i{width:6px; height:6px; border-radius:50%; background:var(--c)}
@@ -573,6 +599,17 @@ textarea{resize:vertical; line-height:1.55}
 .ghost.bad span{color:var(--ink-3)}
 .ghost.paint{border-style:solid; border-color:var(--ink-3); background:var(--fill-2)}
 .ghost.paint span{color:var(--ink-2)}
+/* 拖着有截止的任务时，截止之后的时间罩上斜纹 */
+.duezone{
+  position:absolute; left:0; right:0; z-index:45; pointer-events:none;
+  border-top:1.5px dashed var(--cinnabar);
+  background:repeating-linear-gradient(135deg, rgba(var(--cinnabar-rgb),.10) 0 6px, transparent 6px 12px);
+}
+.duezone span{
+  position:absolute; right:6px; top:3px;
+  font-family:var(--mono); font-size:10px; color:var(--cinnabar);
+  background:var(--paper-hi); padding:1px 5px; border-radius:2px;
+}
 
 /* 现在 */
 .nowline{position:absolute; left:calc(-1 * var(--gut)); right:0; height:0; z-index:40; pointer-events:none}

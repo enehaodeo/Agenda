@@ -75,12 +75,21 @@
         </div>
       </div>
       <div class="tag-picker" id="newTags"></div>
+      <div class="compose-due">
+        <button type="button" class="due-tog" id="newDueTog" title="可选：排程不会越过截止时间">＋ 截止时间</button>
+        <div class="due-row" id="newDueFields" hidden>
+          <span class="due-lbl">截止</span>
+          <input type="date" id="newDueD" aria-label="截止日期">
+          <input type="time" id="newDueT" aria-label="截止时刻（可留空＝当天之内）">
+          <button type="button" class="due-x" id="newDueX" title="不设截止">×</button>
+        </div>
+      </div>
       <button class="primary-btn" id="btnAdd">添加到待办</button>
     </section>
 
     <section class="panel" id="poolPanel">
       <h2 class="panel-title">待办 <span class="count" id="poolCount">0</span>
-        <button class="link-btn" id="btnAutoAll" title="按顺序把待办自动排入可用时间">自动排程</button>
+        <button class="link-btn" id="btnAutoAll" title="按顺序把待办自动排入可用时间，有截止时间的先排">自动排程</button>
       </h2>
       <div class="pool" id="pool"></div>
     </section>
@@ -184,6 +193,18 @@
           <button type="button" data-min="90">90</button>
           <button type="button" data-min="120">120</button>
         </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">截止</span>
+      <div class="due-block">
+        <div class="due-row">
+          <input type="date" id="fDueD" aria-label="截止日期">
+          <input type="time" id="fDueT" aria-label="截止时刻（可留空＝当天之内）">
+          <button type="button" class="due-x" id="fDueX" title="清除截止">×</button>
+        </div>
+        <p class="due-hint" id="fDueHint"></p>
       </div>
     </div>
 

@@ -103,6 +103,7 @@ function merge3(base, a, b) {
  *   - 同一天的可用时间段重叠 / 相邻 → 合并
  *   - 被这次合并碰过的日子里：block 时长跟着任务走，
  *     互相重叠或出了可用时间的，mt 较旧的那个撤回待办
+ *   - 越过任务（或其父任务）截止时间的 block → 撤回待办
  * prev 是合并前的本地数据，用来圈出"被碰过的日子"，没动过的日子原样不查。
  * 返回 {data, bumped: [被撤回待办的任务名]}
  */
@@ -174,6 +175,16 @@ function repairData(d, prev) {
     }
   }
   d.blocks = d.blocks.filter(b => !drop.has(b.id)).map(b => fix.get(b.id) || b);
+
+  /* 截止时间：一边改了截止、另一边排的日程就可能越过它（子任务还受父任务约束）。
+     本机的操作从不越过截止，所以这一条不限于被碰过的日子 */
+  const late = (b, due) => due && (b.date > due.date || (b.date === due.date && b.end > due.min));
+  d.blocks = d.blocks.filter(b => {
+    const t = T.get(b.taskId), p = t.parentId && T.get(t.parentId);
+    if (!late(b, t.due) && !late(b, p && p.due)) return true;
+    bumped.push(t.title);
+    return false;
+  });
   return { data: d, bumped };
 }
 

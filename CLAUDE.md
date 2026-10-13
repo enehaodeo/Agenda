@@ -61,6 +61,8 @@ python -m http.server 5177
 3. **一个任务最多一个 block**（`blockOf()` 用 `find`）。跨日程安排靠 block 上的 `date` 字段，不是多条记录。
 4. **block 必须完整落在某个 slot 内且互不重叠**。这条由 `findPlacement()` 保证，不要绕过它直接往 `state.blocks` 里塞。
 
+截止时间（可选）：任务上的 `due = {date, min}`，`min` 是当天分钟数，`1440` 表示「那天之内」；不设就没有这个字段。子任务的有效截止 = 自己和父任务里较早的那个（`dueOf()`）。**block 的结束不得晚于有效截止**——`dueCap(t, dk)` 把它换算成「dk 这天最晚能排到几点结束」（无截止 1440，截止日之后 -1），作为 `findPlacement` 的 `ceil` 传入。所有落位入口（`place`、拖入 / 拖动、「仍要放入」、结算顺延、`revalidate`）都要传，新增落位入口时别漏了。改了截止后靠 `revalidate()` 把已排的就近往前挪或退回待办。
+
 `slots`（可用时间段）在每次增删后调用 `mergeSlots(date)` 合并重叠/相邻区间，所以 slot 的 id 会变，不要长期缓存。
 
 ### 排程算法
@@ -68,7 +70,7 @@ python -m http.server 5177
 全部时间用「当天 0 点起的分钟数」表示（0–1440），日期用 `YYYY-MM-DD` 字符串（`keyOf` / `dateOf` / `shiftKey`）。
 
 - `freeIntervals(dk, ignoreId, base)` — slots 减去 blocks，得到空闲区间。`base` 传 `[{s:0,e:1440}]` 可无视可用时间（"仍要放入"用）。
-- `findPlacement(dk, dur, desired, ignoreId, anywhere, floor)` — 返回**离 desired 最近的合法起点**，放不下返回 `null`。这是唯一的落位入口。
+- `findPlacement(dk, dur, desired, ignoreId, anywhere, floor, ceil)` — 返回**离 desired 最近的合法起点**，放不下返回 `null`。这是唯一的落位入口。`ceil`（默认 1440）是结束时刻上限，截止时间走这里。
 - `floorOf(dk)` — 今天时返回向上取整到 5 分钟的当前时刻，用于让自动排程/顺延不往过去塞；手动拖拽不传 floor（用户明确指定的位置允许在过去）。
 - `magnet(dk, m, ignoreId)` — 先吸附 5 分钟刻度，9 分钟内有 slot 边界或其他 block 边缘则精确对齐。
 
@@ -111,7 +113,7 @@ python -m http.server 5177
 - 同步的只有 `DATA_KEYS`（tasks / blocks / slots / tags / log），`ui` 属于设备不同步。`dataOf()` 是**深拷贝**——`syncOnce()` 里有 await，必须拿快照而不是 state 的引用，否则推送途中本机的新改动会被误记进 base。
 - `sync()` 流程：pull → 云端 rev 变了就 `merge3(base, 本地, 云端)` → `repairData()` 修不变量 → 结果和本地不同就 `adoptData()` → 推送 → 成功后写 base/rev；推送返回 -1 就重来（最多 4 轮）。单飞，进行中再触发只补一轮。触发：`save()` 后防抖 1.5s、`online`、页面回到前台、前台每 60 秒。
 - `merge3` 按 id 逐条：只有一边改 → 用那边；两边都改 → 比 `mt`；一边删一边改 → 保留改的。所以**不要删掉记录上的 `mt` 字段**，也不要在别处手动写它（`stampChanges` 会在 `mergeSlots` 这类重建对象时把旧 `mt` 补回去）。
-- `repairData` 在合并后恢复上面四条不变量（孤儿子任务变顶层、父任务 / 已删任务 / 重复的 block 删掉、同日时间段合并），并且**只在这次合并碰过的日子里**检查 block 重叠、越出时间段、时长与任务不符——冲突时 `mt` 旧的退回待办并 toast。
+- `repairData` 在合并后恢复上面四条不变量（孤儿子任务变顶层、父任务 / 已删任务 / 重复的 block 删掉、同日时间段合并），并且**只在这次合并碰过的日子里**检查 block 重叠、越出时间段、时长与任务不符——冲突时 `mt` 旧的退回待办并 toast。越过截止时间的 block 也退回待办（这条不限于被碰过的日子）。
 - `adoptData()` 替换 state 后会**清空撤销栈**：旧快照不含别的设备的改动，撤销会把它们吞掉。拖拽进行中（`drag` 非空）不 adopt，1.5 秒后重试。
 - 多标签页：监听 `storage` 事件，别的标签页写了当前 `STORE` 就跟着重载数据，写了 `agenda.acct.v1` 就跟着换账号；access token 刷新前先看磁盘上有没有别的页刚换好的。
 - 纯函数（`merge3` / `repairData` / `dataOf`）不碰 DOM，可以在 Node 里用 `vm.runInThisContext` 载入 sync.js 单测。
